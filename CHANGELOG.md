@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.9.0](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.8.7...v4.9.0) (2026-10-03)
+
+
+### Features
+
+* **ci:** route and execute provisioned-host mutations (N17 R3 + R4) ([#122](https://github.com/Orchestration-Maestro/maestro-rust-workflows/issues/122)) ([85e4555](https://github.com/Orchestration-Maestro/maestro-rust-workflows/commit/85e4555da10678a116d1ac7f43811e3f0759cc54))
+
 ## [4.8.7](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.8.6...v4.8.7) (2026-10-03)
 
 
