@@ -174,7 +174,8 @@ if [[ "$scenario" == cleanup ]]; then
     git -C "$tree" add src/lib.rs
   fi
   if [[ "$mode" == cleanup-commit || "$mode" == cleanup-empty ]]; then
-    git -C "$tree" -c commit.gpgsign=false commit --allow-empty -qm 'cleanup source change'
+    git -C "$tree" -c user.name=Fixture -c user.email=fixture@example.invalid \
+      -c commit.gpgsign=false commit --allow-empty -qm 'cleanup source change'
   fi
   if [[ "$mode" == cleanup-reset ]]; then
     git -C "$tree" reset --hard "$(get '.identity.sha')"
@@ -196,7 +197,8 @@ mode=${HOST_FIXTURE_MODE:-ordinary}
 if [[ "$mode" == source-* && "$scenario" == baseline-before ]]; then
   if [[ "$mode" == source-commit ]]; then printf '\n// committed source change\n' >> src/lib.rs; fi
   git add src/lib.rs
-  git -c commit.gpgsign=false commit --allow-empty -qm 'changed source'
+  git -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c commit.gpgsign=false commit --allow-empty -qm 'changed source'
 fi
 if [[ "$mode" == hang ]]; then
   touch "$scratch/active"

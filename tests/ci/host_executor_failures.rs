@@ -415,6 +415,10 @@ fn cleanup_source_commits_are_refused_after_teardown_and_restored_to_the_plan() 
                 &fixture.root.join("host-executor/checkout"),
                 &[
                     "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "-c",
                     "commit.gpgsign=false",
                     "commit",
                     "--allow-empty",
@@ -462,6 +466,10 @@ fn restoration_head_failure_retains_cleanup_result_and_reports_both_errors() {
     fixture_git(
         &tree,
         &[
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
             "-c",
             "commit.gpgsign=false",
             "commit",
