@@ -148,6 +148,7 @@ fn checks_hand_the_runners_to_portability_and_the_result_to_the_required_status(
             "mutations",
             "mutation-summary",
             "mutation-windows",
+            "mutation-host",
             "mutation-engine",
             "mutation-engine-default"
         ])

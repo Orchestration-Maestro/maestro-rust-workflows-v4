@@ -1359,6 +1359,21 @@ existing report artifact name. The scorecard in `checks` marks mutation
 required job, `Required Rust CI`, requires every planned index and a successful
 summary in addition to the plan, `checks` and requested portability results.
 
+### Provisioned-host ownership
+
+The optional tested-head `[ci.mutation-provisioned-host]` table transfers exact
+Rust files to full-file provisioned-host mutation obligations. It never removes
+changed coverable lines or edits LCOV hits. The policy, schema-1 plans,
+`mutation-host-list.json`, `mutation-host-plan.log`, `mutation-host-plan.json`,
+`host-outcomes.json`, `changed-coverage-pending.json` and
+`changed-coverage-final.json` are described in
+[the provisioned-host contract](provisioned-host.md).
+
+No consumer enables this first gate slice. A configured host owner without the
+executor result fails closed, including ordinary-inline and ordinary-empty
+plans. The required host executor job follows separately. Ordinary and global
+coverage thresholds, Windows ownership and engine controls remain unchanged.
+
 ### Platform portability
 
 Every gate runs on `ubuntu-24.04`. `platforms` adds a `portability` job per
@@ -1714,3 +1729,13 @@ verified compatible entries can therefore require zero native source builds.
 
 Published selectors are exact root-child names or `*`/`?` globs; hidden names
 are allowed, but `.`, `..`, separators, `**`, brackets, braces and escapes are refused.
+
+## Provisioned-host execution reports
+
+The required Ubuntu `mutation-host` job retains `host-artifacts`, including
+`host-outcomes.json`, every schema-1 request and result, baseline and phase logs,
+current Cargo JSON logs, `host-progress.json` and interruption diagnostics.
+The independent always-run cleanup result remains alongside these artifacts.
+Aggregation downloads the same-attempt host artifact and joins it to the early
+plan and pending changed coverage. A survivor, incomplete proof or failed cleanup
+keeps the job and Required Rust CI red. See [the protocol](provisioned-host.md).

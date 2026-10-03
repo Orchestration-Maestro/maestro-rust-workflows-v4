@@ -99,6 +99,12 @@ pub(super) const CHECKS: &[(&str, Local)] = &[
     ),
     ("Line coverage gate", Local::Gate("coverage")),
     (
+        "Download immutable mutation planning reports",
+        Local::NotApplied(
+            "local CI always runs the full mutation suite inline; remote plans are not consumed",
+        ),
+    ),
+    (
         "Coverage of the lines a pull request adds",
         Local::Gate("changed-coverage"),
     ),
@@ -106,12 +112,6 @@ pub(super) const CHECKS: &[(&str, Local)] = &[
     (
         "Licence, dependency-ban and source policy",
         Local::Gate("licenses"),
-    ),
-    (
-        "Download immutable mutation planning reports",
-        Local::NotApplied(
-            "local CI always runs the full mutation suite inline; remote plans are not consumed",
-        ),
     ),
     ("Mutation testing", Local::Gate("mutants")),
     (
@@ -192,6 +192,10 @@ pub(super) const OTHER_JOBS: &[(&str, &str)] = &[
     (
         "mutation-windows",
         "Windows-owned mutation testing runs on GitHub's Windows runner",
+    ),
+    (
+        "mutation-host",
+        "scoped host provisioning runs only in the required Ubuntu job",
     ),
     ("upload", "only a GitHub run uploads SARIF to code scanning"),
     ("coverage", "only a GitHub run uploads coverage to Codecov"),
