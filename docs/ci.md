@@ -1379,9 +1379,9 @@ coverage thresholds, Windows ownership and engine controls remain unchanged.
 Every gate runs on `ubuntu-24.04`. `platforms` adds a `portability` job per
 named platform, on a pinned runner: `macos` on `macos-15` (Apple silicon),
 `windows` on `windows-2025` and `linux-arm` on `ubuntu-24.04-arm`. Each checks
-out the same commit, installs the toolchain `checks` validated and runs
+out the same commit, installs the toolchain `mutation-plan` validated and runs
 `cargo test --locked --workspace` in `working-directory`; it starts after
-`checks`, which validated both. `Required Rust CI` fails when a named platform
+`mutation-plan`, which validated both, in parallel with `checks`. `Required Rust CI` fails when a named platform
 did not pass. The job builds and tests only: release binaries, their bills of
 materials and the scorecard stay Linux x86_64.
 

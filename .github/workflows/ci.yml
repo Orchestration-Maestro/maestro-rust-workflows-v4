@@ -1322,26 +1322,26 @@ jobs:
           retention-days: 7
   portability:
     name: Portability on ${{ matrix.runner }}
-    # After checks: it validated the directory and toolchain used here.
+    # Planning validated the same directory and toolchain, so checks need not finish.
     needs:
-      - checks
-    if: ${{ needs.checks.outputs.platforms != '' }}
+      - mutation-plan
+    if: ${{ needs.mutation-plan.outputs.platforms != '' }}
     strategy:
       fail-fast: false
       matrix:
-        runner: ${{ fromJSON(needs.checks.outputs.platforms) }}
+        runner: ${{ fromJSON(needs.mutation-plan.outputs.platforms) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
       contents: read
     env:
-      RUSTUP_TOOLCHAIN: ${{ needs.checks.outputs.toolchain }}
+      RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
     # These run defaults replace the workflow's, so Bash is named again: on
     # Windows the default shell is PowerShell.
     defaults:
       run:
         shell: bash
-        working-directory: ${{ needs.checks.outputs.directory }}
+        working-directory: ${{ needs.mutation-plan.outputs.directory }}
     steps:
       - name: Checkout consumer revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

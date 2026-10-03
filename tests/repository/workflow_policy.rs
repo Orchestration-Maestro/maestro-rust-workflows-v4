@@ -131,6 +131,8 @@ fn all_jobs_use_github_runners_without_caller_overrides() {
             // platform runners; every other job stays on Ubuntu.
             if name == "ci" && id == "portability" {
                 assert_eq!(job["runs-on"], "${{ matrix.runner }}");
+                assert_eq!(job["needs"], serde_json::json!(["mutation-plan"]));
+                assert!(!job.to_string().contains("needs.checks"));
             } else if name == "ci" && id == "mutation-windows" {
                 assert_eq!(job["runs-on"], "windows-2025");
             } else if job.get("steps").is_some() {
