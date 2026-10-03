@@ -64,6 +64,7 @@ fn publication_defaults_and_required_dependencies() {
             "mutations",
             "mutation-summary",
             "mutation-windows",
+            "mutation-host",
             "mutation-engine",
             "mutation-engine-default"
         ])

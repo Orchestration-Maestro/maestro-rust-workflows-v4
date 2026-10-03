@@ -1,9 +1,9 @@
 # Provisioned-host ownership
 
 This is an ownership transfer, not an exclusion or manufactured LLVM hit.
-No consumer enables it yet. The host executor and Ubuntu job are a separate
-slice. Until they exist, configured ownership fails Required Rust CI with
-`provisioned-host mutation result is missing; no host executor ran`.
+The early planner and required Ubuntu executor form one capability. R3 and R4
+release together. Consumers enable ownership only after their provisioner
+implements the schema-1 protocol below. Missing execution still fails closed.
 
 ## Tested-head policy
 
@@ -71,7 +71,7 @@ Its fields are `schema`, `sha`, `run_id`, `attempt`, `plan_sha256`,
 | `phases` | `normal`, `abandon`, `preparing`, `recover_abandon`, `recover_preparing` assertion statuses |
 | `test_sha256`, `bootstrap_sha256` | Current built test and bootstrap byte digests |
 | `logs` | Nonempty map of artifact-relative raw phase log paths to SHA-256 digests |
-| `test_failure` | Nonempty unique array of exact selected test or failed phase names |
+| `test_failure` | Mutant receipts only: unique exact selected test or failed phase names |
 
 Each `outcomes` entry contains the complete planned `mutant` identity,
 `outcome`, `patched_source_sha256` and `receipt`. Exact planned and executed
@@ -101,8 +101,163 @@ host hits and exact mutant totals. `HOST_BEHAVIOUR_VERIFIED` is distinct from
 
 The scorecard keeps pending changed coverage and mutation `not-run`. Only the
 same-attempt successful host job, aggregation and coverage join can satisfy
-Required Rust CI. R4 adds the executor job and its dependency edge together;
-there is no placeholder success or refusing job in this slice. The executor
-must run every mandatory phase for each scenario in fresh units. Existing job
-budgets, thresholds and artifact retention are unchanged. Pi has no equivalent
-coverage-owner or provisioning policy.
+Required Rust CI. The `mutation-host` job depends only on the early plan, not
+checks or coverage. Its internal-PR guard cannot be replaced by a manual
+qualification artifact. The executor runs every mandatory phase in fresh units.
+Raw global LLVM coverage and existing ordinary gates remain unchanged.
+
+## Serial execution and scoped cleanup
+
+`rust-gate mutants-host` revalidates the tested SHA, first parent, run, attempt,
+compiler, workflow, policy, source and script hashes. It copies the provisioner,
+prepares one disposable Git checkout and writes a digest-bound `prepared.json`.
+The consumer checkout is never mutated. Pinned discovery refuses a tool whose
+reported version differs from cargo-mutants 27.1.0.
+
+The supervisor command runs `timeout --kill-after=1m 30m` around its own internal
+`mutants-host-execute` command. The internal entry refuses absent or changed
+prepared state. It runs a clean baseline, each complete listed patch serially,
+and a restored baseline. Cargo-mutants labels the new patch side with its
+mutation description; only these two headers are normalized for Git. The exact
+listed patch body remains unchanged. Git restores tracked bytes with new mtimes.
+A provisioner changing tracked source invalidates its result. Mutants that reuse
+both baseline executable digests are stale, not caught. A parent-only mutation
+may legitimately leave the bootstrap digest unchanged.
+
+The script must obtain the test and bootstrap paths from Cargo JSON and copy the
+current built executables into the scenario scratch before reporting digests.
+It may keep build outputs only as a cache. It must install those bootstrap bytes
+at the manifest's root-owned installation location, under their digest, with the
+existing root:root 0755 directory and 0555 executable posture. A mutant's failed
+probe cannot select a weaker provisioning route than the clean baseline.
+
+Each viable scenario runs `normal`, `abandon`, `preparing`, `recover_abandon` and
+`recover_preparing`, including the remaining phases after a behavioural failure.
+Each phase uses its own fresh non-root delegated unit from the scope manifest.
+Reuse the existing 120-second provisioning/collection ceiling and a 120-second
+unit watchdog. Build, setup, ignored/zero selection, incomplete phases, timeout,
+outer signal/OOM and cleanup failures never count as kills. If the first baseline
+fails, no mutant is provisioned; the final baseline is retried and the complete
+unproven population remains red.
+
+The gate-written scope manifest has exact fields `schema`, `prefix`, `units`,
+`profile`, `installation`, `scratch` and `resources`. Units have unique names
+for each scenario and phase. For run 123, attempt 1, the profile is
+`/etc/apparmor.d/maestro-n17-parser-123-1`, installation is
+`/opt/maestro/n17/123-1`, and scratch is inside the gate's runner-temp scope.
+`resources` is the exact flattened set of unit names and those three paths.
+R5 must refuse escapes, symlinks, unreserved prefixes and roots it did not create.
+No global AppArmor, systemd or installation cleanup is authorized.
+
+The parent attempts teardown and source restoration even after child failure.
+The job also has an independent `if: always()` cleanup step, so killing the
+executor cannot suppress collection. Cleanup is idempotent and never earns
+mutation credit. A missing, failed or out-of-scope cleanup receipt fails the job.
+Requests, results, raw logs, `host-progress.json` and `host-interruption.json`
+remain artifacts on failure. The interruption record names the complete planned
+population, completed outcomes and exact identities still lacking complete proof.
+It never fabricates cargo-mutants outcomes.
+
+## Schema 1 script protocol
+
+The script retains its no-argument entry and adds exactly:
+
+```text
+bash <tracked-provisioner> --gate-host-v1 <request-json> <result-json>
+```
+
+Request and result files are gate-controlled regular files. Unknown or missing
+fields, unsupported versions, escaping/symlink paths and mismatched features
+refuse. The script must emit failure receipts too. The gate binds result bytes
+to the request digest calculated before execution, not a rewritten request.
+
+| Request field | Meaning |
+| --- | --- |
+| `schema` | Exactly 1 |
+| `scenario` | `baseline-before`, `mutant`, `baseline-after` or `cleanup` |
+| `scenario_id` | Unique label: baseline name, `mutant-0`, `mutant-1`, or `cleanup` |
+| `features` | Exact planned qualified package/feature array |
+| `identity` | Complete default manifest identity from the host plan |
+| `policy_sha256`, `provisioner_sha256` | Exact tested policy and script digests |
+| `source_sha256` | Baseline owned-source digest map |
+| `mutant` | Complete discovered mutant object, or null for baselines/cleanup |
+| `patched_source_sha256` | Gate-computed patched bytes, or empty for baselines/cleanup |
+| `scratch`, `reports` | Exclusive scenario locations inside the gate-controlled trees |
+| `baseline_posture` | Null before baseline/cleanup; otherwise `{installed, apparmor}` booleans |
+| `scope_manifest`, `scope_sha256` | Exact gate-owned scope file and its digest |
+
+These examples show the scenario-dependent fields only. The gate supplies every
+common field in the table; these fragments are not standalone input files.
+
+```json
+{"scenario":"baseline-before","scenario_id":"baseline-before","mutant":null,"patched_source_sha256":"","baseline_posture":null}
+```
+
+```json
+{"scenario":"mutant","scenario_id":"mutant-0","baseline_posture":{"installed":true,"apparmor":true}}
+```
+
+The mutant request also carries its complete listing object and nonempty patched
+source digest, not an invented or abbreviated mutation identity.
+
+```json
+{"scenario":"baseline-after","scenario_id":"baseline-after","mutant":null,"patched_source_sha256":"","baseline_posture":{"installed":true,"apparmor":true}}
+```
+
+```json
+{"scenario":"cleanup","scenario_id":"cleanup","mutant":null,"patched_source_sha256":"","baseline_posture":null}
+```
+
+A scenario result has exactly `schema`, `request_sha256`, `posture`, `artifacts`,
+`cargo_json`, `installed_bootstrap` and `receipt`. `posture` has exactly the `installed` and `apparmor` booleans.
+`artifacts` has exactly `test` and `bootstrap`, the current built executable
+paths inside that scenario's scratch. `cargo_json` has exactly `test` and
+`bootstrap`, artifact-relative Cargo JSON paths which must also appear in
+`receipt.logs`. Each log must end in a successful `build-finished` record and
+identify exactly one current executable of its role inside the executor root.
+The gate hashes these current build outputs as well as their scenario copies,
+so a changed parent test cannot legitimize baseline bootstrap bytes.
+
+`installed=false` requires `installed_bootstrap:null`. `installed=true` requires
+an exact regular file under the manifest installation's current bootstrap digest
+directory. The gate uses lstat throughout, refuses symlink components and checks
+uid 0, gid 0, mode 0555 and bytes matching the current Cargo-built bootstrap.
+Installation directories must be root:root 0755. These production identities
+are fixed. Private unit fixtures pass their actual owner through a mandatory
+private parameter; there is no production environment override. Wrong owner,
+mode, root, digest or null/path relationship refuses with a named reason.
+The gate recomputes every nonempty raw-log digest. `receipt` is the exact R3 receipt defined
+above: baselines omit `test_failure`, while mutant receipts require it, including
+an empty array on a survivor. Statuses are `passed`, `failed` or `not-run`;
+counters are nonnegative integers and selection is unique. Only a complete
+named failure after successful build, provisioning and cleanup becomes `caught`.
+Every failed phase is named, and the number of named Rust failures equals
+`failed`. Timeout/signal process status overrides an alleged caught receipt.
+
+A cleanup result has exactly `schema`, `request_sha256`, `cleanup`, `removed`
+and `absent`. Cleanup must be `passed`, and the disjoint union of the unique
+`removed` and `absent` arrays must equal the exact manifest resource set. A
+second cleanup returns no removed resources. Receipts outside that set refuse.
+
+## Budgets and qualification
+
+The required Ubuntu job is 60 minutes, the executor step 35, and the inner
+command 30 with a one-minute kill-after: `30 + 1 < 35 < 60`. The independent
+cleanup step is five minutes around its reused 120-second command and one-minute
+kill-after. Seven-day artifact retention and the ten-minute aggregate job are
+unchanged. Pi's installed subagent documentation uses a 30-minute run backstop
+and a 300000 ms HTTP idle timeout. The latter is not a kernel watchdog. Live Pi
+settings do not override these defaults; Pi has no host-provisioning or artifact
+retention equivalent. Serial execution is required by scoped profile and
+installation lifecycle, not Pi's default four-agent concurrency.
+
+[The synthetic qualification workflow](../.github/workflows/host-executor-fixture.yml)
+runs actual pinned discovery, Cargo JSON builds and executable assertions on
+Ubuntu. It observes one caught and one surviving mutation, asserts that the
+partition returned failure and retains logs and successful cleanup receipts.
+Its outer test passes only when that expected red partition is observed. The
+synthetic provisioner uses ordinary processes and, on GitHub, a scoped root-owned
+bootstrap installation with marker-bound always-run cleanup. It additionally
+refuses baseline installed bootstrap bytes under a changed parent test binary.
+It claims no AppArmor, delegated-cgroup or parser-containment qualification. R5's real host
+assertions and mutated-bootstrap sentinel remain mandatory before adoption.

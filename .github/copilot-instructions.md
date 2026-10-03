@@ -62,6 +62,7 @@ in place.
 │   │   ├── docs-sync.yml                                        # On a pull request from this repository, the bot commits the tables just docs regenerated
 │   │   ├── fuzz.yml                                             # Bounded fuzz regression on a nightly toolchain
 │   │   ├── gate-mutation.yml                                    # Manual and weekly gate mutation shards, full-suite replay and complete evidence
+│   │   ├── host-executor-fixture.yml                           # Actual discovery, caught/surviving execution and scoped root-installed bootstrap qualification
 │   │   ├── hygiene.yml                                          # The reusable CI of a repository without Rust: secrets, hygiene, managed files, hooks
 │   │   ├── native-cache-fixture.yml                             # Native cache fixture
 │   │   ├── publish-binaries.yml                                 # Protected binary release, dry-run by default
@@ -276,6 +277,16 @@ in place.
 │   │   │   │   │   ├── package_build.rs                         # Retain and verify one owning package's independent compiler evidence
 │   │   │   │   │   ├── run.rs                                   # Run tests only for compiled assigned mutants, preserving the exact complete control plan
 │   │   │   │   │   └── source.rs                                # Bind the compiler coordinate frame and package selection to retained Cargo metadata
+│   │   │   │   ├── host_executor/                              # Serial disposable-tree host execution and independently repeatable teardown
+│   │   │   │   │   ├── identity.rs                             # Revalidate the complete host plan before invoking consumer administration
+│   │   │   │   │   ├── installed.rs                            # Bind the physically installed bootstrap to the current Cargo-produced bytes
+│   │   │   │   │   ├── json.rs                                 # Small JSON readers for the versioned host executor protocol
+│   │   │   │   │   ├── mod.rs                                  # Serial disposable-tree host execution and independently repeatable teardown
+│   │   │   │   │   ├── prepared.rs                             # Gate-owned preparation binding for the separately bounded host child
+│   │   │   │   │   ├── protocol.rs                             # Gate-controlled schema-1 requests and the one reviewed script invocation
+│   │   │   │   │   ├── receipts.rs                             # Strict protocol receipts and truthful classification separate failures from kills
+│   │   │   │   │   ├── step.rs                                 # Host execution orchestration, complete outcomes and an independent teardown entry
+│   │   │   │   │   └── tree.rs                                 # Disposable tested-head checkout and exact discovered patch application
 │   │   │   │   ├── engine_plan.rs                               # Discover both modes and preserve every featureless obligation before routing workers
 │   │   │   │   ├── engine_run.rs                                # Execute exact shard obligations independently in featureless and engine modes
 │   │   │   │   ├── host_plan.rs                                 # Full-file host discovery, bound to the ordinary plan and tested source
@@ -387,6 +398,9 @@ in place.
 │   │   ├── feature_combinations.rs                              # ci.yml: real per-feature and combined compilation, plus replay coverage
 │   │   ├── host_coverage_join.rs                                # Host evidence is distinct from LLVM hits and cannot enlarge ordinary allowances
 │   │   ├── host_evidence_schema.rs                                # Versioned host envelopes and nested records refuse schema drift
+│   │   ├── host_executor.rs                                    # Actual host protocol commands, exact patches and fail-closed execution
+│   │   ├── host_executor_failures.rs                           # Infrastructure failures, interruption and cleanup cannot become behavioural kills
+│   │   ├── host_executor_identity.rs                           # Host execution rechecks trusted identities, source and preparation before administration
 │   │   ├── host_ownership.rs                                    # Provisioned-host ownership is a transfer, never a coverage exemption
 │   │   ├── host_policy_validation.rs                            # Strict tested-head host policy, overlaps and all discovery modes
 │   │   ├── host_required_status.rs                              # Every default mode requires host execution, aggregation and coverage in the same attempt
@@ -461,6 +475,7 @@ in place.
 │   │   ├── engine_workspace.rs                                  # Real Git setup for mode and input-only ownership regressions
 │   │   ├── fixture.rs                                           # One temporary checkout, one environment table, a step run against stand-ins, every command traced
 │   │   ├── gate_declarations.rs                                 # The gate built once per test process, and what rust-gate describe declares about its steps
+│   │   ├── host_execution.rs                                   # A real Cargo consumer exercising the same host executor protocol on local and hosted runs
 │   │   ├── host_fixture.rs                                      # A synthetic consumer with a tracked host owner and full deterministic listing
 │   │   ├── mod.rs                                               # The repository modules, listed and nothing else
 │   │   ├── mutation_shards.rs                                   # Shared test fixtures for mutation planning and evidence aggregation

@@ -27,6 +27,10 @@ pub(super) fn policy(job: &Job) -> Result<Option<HostPolicy>, Failure> {
 
 /// Discover every owned file with no inherited exclusions, diff or iteration.
 pub(super) fn discover(job: &Job, policy: &HostPolicy, manifest: &Path) -> Outcome {
+    let version = Cmd::new("cargo mutants --version").capture()?;
+    if version.trim() != "cargo-mutants 27.1.0" {
+        return Err("host discovery requires pinned cargo-mutants 27.1.0".into());
+    }
     let listing = job.report("mutation-host-list.json")?;
     let mut command = Cmd::new(concat!(
         "cargo mutants --list --json --no-shuffle --no-config ",

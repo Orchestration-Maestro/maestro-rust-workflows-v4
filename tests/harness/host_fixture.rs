@@ -84,7 +84,9 @@ pub(crate) fn host_fixture() -> Fixture {
     .unwrap();
     fixture.stub(
         "cargo",
-        r#"if [[ "$1" == metadata ]]; then
+        r#"if [[ "$*" == 'mutants --version' ]]; then
+printf 'cargo-mutants 27.1.0\n'
+elif [[ "$1" == metadata ]]; then
 cat "$RUNNER_TEMP/host-metadata.json"
 elif [[ "$*" == *--file* ]]; then cat "$RUNNER_TEMP/host-list.json"
 else printf '[]\n'; fi"#,

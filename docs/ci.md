@@ -1717,3 +1717,13 @@ verified compatible entries can therefore require zero native source builds.
 
 Published selectors are exact root-child names or `*`/`?` globs; hidden names
 are allowed, but `.`, `..`, separators, `**`, brackets, braces and escapes are refused.
+
+## Provisioned-host execution reports
+
+The required Ubuntu `mutation-host` job retains `host-artifacts`, including
+`host-outcomes.json`, every schema-1 request and result, baseline and phase logs,
+current Cargo JSON logs, `host-progress.json` and interruption diagnostics.
+The independent always-run cleanup result remains alongside these artifacts.
+Aggregation downloads the same-attempt host artifact and joins it to the early
+plan and pending changed coverage. A survivor, incomplete proof or failed cleanup
+keeps the job and Required Rust CI red. See [the protocol](provisioned-host.md).

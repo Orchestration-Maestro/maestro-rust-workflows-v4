@@ -193,6 +193,10 @@ pub(super) const OTHER_JOBS: &[(&str, &str)] = &[
         "mutation-windows",
         "Windows-owned mutation testing runs on GitHub's Windows runner",
     ),
+    (
+        "mutation-host",
+        "scoped host provisioning runs only in the required Ubuntu job",
+    ),
     ("upload", "only a GitHub run uploads SARIF to code scanning"),
     ("coverage", "only a GitHub run uploads coverage to Codecov"),
     (

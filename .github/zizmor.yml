@@ -23,6 +23,7 @@ rules:
       - fuzz.yml
       - gate-mutation.yml
       - hygiene.yml
+      - host-executor-fixture.yml
       - native-cache-fixture.yml
       - publish-binaries.yml
       - publish-crate.yml
