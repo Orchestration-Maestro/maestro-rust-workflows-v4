@@ -119,8 +119,8 @@ The supervisor command runs `timeout --kill-after=1m 30m` around its own interna
 prepared state. It runs a clean baseline, each complete listed patch serially,
 and a restored baseline. Cargo-mutants labels the new patch side with its
 mutation description; only these two headers are normalized for Git. The exact
-listed patch body remains unchanged. Git restores tracked bytes with new mtimes.
-A provisioner changing tracked source invalidates its result. Mutants that reuse
+listed patch body remains unchanged. Git compares and restores tracked bytes against the bound plan SHA, with new mtimes.
+A provisioner moving HEAD or changing tracked source invalidates its result. Mutants that reuse
 both baseline executable digests are stale, not caught. A parent-only mutation
 may legitimately leave the bootstrap digest unchanged.
 
@@ -166,7 +166,8 @@ The script retains its no-argument entry and adds exactly:
 bash <tracked-provisioner> --gate-host-v1 <request-json> <result-json>
 ```
 
-Request and result files are gate-controlled regular files. Unknown or missing
+Request and result files are gate-controlled regular files. Request replacement
+refuses existing symlinks and nonregular files, then creates the new file exclusively. Unknown or missing
 fields, unsupported versions, escaping/symlink paths and mismatched features
 refuse. The script must emit failure receipts too. The gate binds result bytes
 to the request digest calculated before execution, not a rewritten request.
@@ -232,7 +233,8 @@ an empty array on a survivor. Statuses are `passed`, `failed` or `not-run`;
 counters are nonnegative integers and selection is unique. Only a complete
 named failure after successful build, provisioning and cleanup becomes `caught`.
 Every failed phase is named, and the number of named Rust failures equals
-`failed`. Timeout/signal process status overrides an alleged caught receipt.
+`failed`. Timeout/signal process status overrides receipt and artifact classifications.
+Receipt and artifact problems remain diagnostics for an interrupted process.
 
 A cleanup result has exactly `schema`, `request_sha256`, `cleanup`, `removed`
 and `absent`. Cleanup must be `passed`, and the disjoint union of the unique

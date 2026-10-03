@@ -92,6 +92,7 @@ fn host_executor_applies_exact_discovered_mutations_and_restores_both_baselines(
         );
     }
     succeeds(&execution);
+    assert_plan_anchored_source_commands(&fixture);
     let path = fixture
         .root
         .join("reports/host-artifacts/host-outcomes.json");
@@ -296,4 +297,14 @@ fn qualification_fixtures() -> Vec<Fixture> {
             })
         })
         .collect()
+}
+
+/// Every source comparison uses the plan revision, including patch containment.
+fn assert_plan_anchored_source_commands(fixture: &Fixture) {
+    let trace = fs::read_to_string(fixture.root.join("trace")).unwrap();
+    let sha = &fixture.env["GITHUB_SHA"];
+    assert!(trace.contains(&format!("git diff --binary {sha}")));
+    assert!(trace.contains(&format!("git diff --name-only {sha}")));
+    assert!(!trace.contains("git diff --binary HEAD"));
+    assert!(!trace.contains("git diff --name-only HEAD"));
 }

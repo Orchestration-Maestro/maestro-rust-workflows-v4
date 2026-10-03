@@ -132,6 +132,8 @@ const SHAPE: &str = concat!(
     "$r.request_sha256 == $digest and ",
     "($r.posture|keys) == [\"apparmor\",\"installed\"] and ",
     "all($r.posture[]; type == \"boolean\") and ",
+    "(if $r.posture.installed then ($r.installed_bootstrap|type == \"string\" and length > 0) ",
+    "else $r.installed_bootstrap == null end) and ",
     "($r.artifacts|keys) == [\"bootstrap\",\"test\"] and ",
     "all($r.artifacts[]; type == \"string\") and ",
     "($r.cargo_json|keys) == [\"bootstrap\",\"test\"] and ",
@@ -176,7 +178,7 @@ mod tests {
     use super::{artifacts, classify, current_build, validate};
     use crate::checks::digests::sha256_hex;
     use crate::runner::Cmd;
-    use std::{env, fs, process};
+    use std::{env, fs, path::Path, process};
 
     #[test]
     fn timeouts_and_outer_signals_never_credit_a_kill() {
@@ -235,6 +237,20 @@ mod tests {
             ".receipt.passed=0.5",
             ".receipt.phases.normal=\"unknown\"",
             "del(.receipt.cleanup)",
+            ".receipt.build=\"failed\"|.installed_bootstrap=true",
+            ".receipt.build=\"failed\"|.posture.installed=true|.installed_bootstrap=null",
+            ".receipt.build=\"failed\"|.posture.installed=true|.installed_bootstrap=[\"path\"]",
+            ".receipt.build=\"failed\"|.installed_bootstrap=\"arbitrary\"",
+            ".receipt.build=\"failed\"|.posture.installed=true|.installed_bootstrap=\"\"",
+            ".posture.installed=1",
+            ".posture.apparmor=1",
+            ".posture.extra=false",
+            ".artifacts.test=false",
+            ".artifacts.extra=\"other\"",
+            ".cargo_json.bootstrap=false",
+            ".receipt.selected_tests=[\"assertion\",\"assertion\"]",
+            ".receipt.test_failure=[\"normal\",\"normal\"]",
+            ".receipt.logs={}",
         ] {
             let altered = field(json, &format!("{change} | tojson")).unwrap();
             assert_eq!(
@@ -331,6 +347,7 @@ mod tests {
         let check =
             |json: &str| artifacts(json, &scratch, &reports, &root, &root.join("installation"));
         check(&json).unwrap();
+        assert_empty_content_refused(&root, &json);
         fs::write(scratch.join("test"), "stale bytes").unwrap();
         assert_eq!(
             check(&json).unwrap_err().message.as_deref(),
@@ -364,23 +381,92 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// Empty bytes cannot be legitimized by their matching digest.
+    fn assert_empty_content_refused(root: &Path, json: &str) {
+        for (path, change, message) in [
+            (
+                root.join("scratch").join("test"),
+                ".receipt.test_sha256",
+                "host built artifact digest is missing or mismatched",
+            ),
+            (
+                root.join("reports").join("normal.log"),
+                ".receipt.logs[\"normal.log\"]",
+                "host raw log digest is missing or mismatched",
+            ),
+        ] {
+            let original = fs::read(&path).unwrap();
+            fs::write(&path, "").unwrap();
+            let altered = field(json, &format!("{change}=\"{}\"|tojson", sha256_hex(b""))).unwrap();
+            assert_eq!(
+                artifacts(
+                    &altered,
+                    &root.join("scratch"),
+                    &root.join("reports"),
+                    root,
+                    &root.join("installation")
+                )
+                .unwrap_err()
+                .message
+                .as_deref(),
+                Some(message)
+            );
+            fs::write(path, original).unwrap();
+        }
+    }
+
     #[test]
     fn incomplete_cargo_json_never_attests_a_current_executable() {
         let root = env::temp_dir().join(format!("host-cargo-json-{}", process::id()));
         fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("cargo-test.json"), "[]").unwrap();
-        let json = format!(
-            r#"{{"cargo_json":{{"test":"cargo-test.json"}},
+        for (kind, records) in [
+            ("test", "[]"),
+            (
+                "test",
+                r#"{"reason":"compiler-artifact","profile":{"test":true},
+"executable":"first"}
+{"reason":"other","success":true}"#,
+            ),
+            (
+                "test",
+                r#"{"reason":"compiler-artifact","profile":{"test":true},
+"executable":"first"}
+{"reason":"build-finished","success":false}"#,
+            ),
+            (
+                "test",
+                r#"{"reason":"compiler-artifact","profile":{"test":false},
+"executable":"first"}
+{"reason":"build-finished","success":true}"#,
+            ),
+            (
+                "bootstrap",
+                r#"{"reason":"compiler-artifact","profile":{"test":false},
+"target":{"kind":["lib"]},"executable":"first"}
+{"reason":"build-finished","success":true}"#,
+            ),
+            (
+                "test",
+                r#"{"reason":"compiler-artifact","profile":{"test":true},
+"executable":"first"}
+{"reason":"compiler-artifact","profile":{"test":true},"executable":"second"}
+{"reason":"build-finished","success":true}"#,
+            ),
+        ] {
+            fs::write(root.join("cargo-test.json"), records).unwrap();
+            let json = format!(
+                r#"{{"cargo_json":{{"{kind}":"cargo-test.json"}},
 "receipt":{{"logs":{{"cargo-test.json":"{}"}}}}}}"#,
-            sha256_hex(b"[]")
-        );
-        assert_eq!(
-            current_build(&json, "test", &root, &root)
-                .unwrap_err()
-                .message
-                .as_deref(),
-            Some("host Cargo JSON must identify exactly one current executable")
-        );
+                sha256_hex(records.as_bytes())
+            );
+            assert_eq!(
+                current_build(&json, kind, &root, &root)
+                    .unwrap_err()
+                    .message
+                    .as_deref(),
+                Some("host Cargo JSON must identify exactly one current executable")
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

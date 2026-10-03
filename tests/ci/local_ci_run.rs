@@ -123,6 +123,38 @@ fi
     write_executable(&path, &script);
 }
 
+/// Pin the pre-host job summary bytes for consumers that have no host policy.
+fn assert_no_host_summary(stdout: &str) {
+    let summary = stdout
+        .lines()
+        .filter(|line| line.contains("  job "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let expected = concat!(
+        "not applied             job mutation-plan: local CI always runs the full ",
+        "mutation suite inline; shard planning is remote-only\n",
+        "not applied             job portability: it builds and tests on GitHub's ",
+        "macOS and Windows runners\n",
+        "not applied             job mutations: only a GitHub run schedules the ",
+        "remote mutation matrix\n",
+        "not applied             job mutation-summary: only a GitHub run aggregates ",
+        "remote mutation shards\n",
+        "not applied             job mutation-engine-default: featureless ",
+        "engine-file controls run in separate GitHub workers\n",
+        "not applied             job mutation-engine: engine-owned mutation modes ",
+        "run in separate GitHub workers\n",
+        "not applied             job mutation-windows: Windows-owned mutation ",
+        "testing runs on GitHub's Windows runner\n",
+        "not applied             job upload: only a GitHub run uploads SARIF to ",
+        "code scanning\n",
+        "not applied             job coverage: only a GitHub run uploads coverage ",
+        "to Codecov\n",
+        "not applied             job gate: it requires the jobs above, whose steps ",
+        "this run reports",
+    );
+    assert_eq!(summary, expected);
+}
+
 /// The steps of the `checks` job of `ci.yml`, in order.
 fn checks_job() -> Vec<Value> {
     workflow("ci")["jobs"]["checks"]["steps"]
@@ -187,11 +219,12 @@ fn every_step_of_the_ci_job_runs_locally_or_says_why_not() {
         "job mutation-plan: local CI always runs the full mutation suite inline; ",
         "shard planning is remote-only"
     )));
+    assert_no_host_summary(&stdout);
     // Just's formatter runs among the hooks and the private documentation in
     // the quality step, so a local run holds a repository to both.
     assert!(ran.iter().any(|id| id == "hooks") && ran.iter().any(|id| id == "quality"));
     for id in workflow("ci")["jobs"].as_object().unwrap().keys() {
-        if id != "checks" {
+        if id != "checks" && id != "mutation-host" {
             assert!(stdout.contains(&format!("job {id}: ")), "{id}: {stdout}");
         }
     }
@@ -380,4 +413,34 @@ fn a_repository_without_a_default_branch_or_of_the_workflows_is_refused() {
         "ci --local: maestro-rust-workflows runs its checks in just check, not through ci.yml",
     );
     assert!(steps(&fixture).is_empty());
+}
+
+#[test]
+fn local_summary_names_host_provisioning_only_with_a_policy() {
+    let fixture = repository();
+    let project = fixture.root.join("project");
+    fs::write(
+        project.join("maestro-quality.toml"),
+        concat!(
+            "[ci.mutation-provisioned-host]\nfiles=['src/lib.rs']\n",
+            "features=['fixture/host-tests']\nprovisioner='host.sh'\n"
+        ),
+    )
+    .unwrap();
+    fs::write(project.join("host.sh"), "#!/bin/bash\nexit 0\n").unwrap();
+    let manifest = fs::read_to_string(project.join("Cargo.toml")).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        format!("{manifest}\n[features]\nhost-tests=[]\n"),
+    )
+    .unwrap();
+    succeeds(&fixture.run_body(
+        "cd project && git add . && git -c user.name=t \
+        -c user.email=t@t commit -qm 'feat: host policy'",
+    ));
+    let output = run_locally(&fixture, "rust-gate ci --local");
+    succeeds(&output);
+    assert!(String::from_utf8_lossy(&output.stdout).contains(
+        "job mutation-host: scoped host provisioning runs only in the required Ubuntu job"
+    ));
 }

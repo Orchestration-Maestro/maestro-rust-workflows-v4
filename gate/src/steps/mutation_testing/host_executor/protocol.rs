@@ -7,7 +7,8 @@ use super::{
 };
 use crate::checks::digests::sha256_hex;
 use crate::runner::{Cmd, Failure, Outcome, input, write};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write as _};
 use std::path::PathBuf;
 
 /// The executor's persistent scope survives a killed executor for always-run teardown.
@@ -106,7 +107,23 @@ impl HostRun {
             ))
             .capture()?;
         let path = report.join("request.json");
-        write(&path, json.as_bytes(), false)?;
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                if !metadata.is_file() {
+                    return Err("host request is not a regular file".into());
+                }
+                fs::remove_file(&path)
+                    .map_err(|error| format!("cannot replace host request: {error}"))?;
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("cannot inspect host request: {error}").into()),
+        }
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .and_then(|mut file| file.write_all(json.as_bytes()))
+            .map_err(|error| format!("cannot create exclusive host request: {error}"))?;
         Ok(path)
     }
 
@@ -123,7 +140,9 @@ impl HostRun {
         let digest = sha256_hex(
             &fs::read(&request).map_err(|error| format!("cannot read request: {error}"))?,
         );
-        let source = Cmd::new("git diff --binary HEAD")
+        let sha = field(&self.plan, ".identity.sha")?;
+        let source = Cmd::new("git diff --binary")
+            .arg(&sha)
             .cwd(&self.tree)
             .capture()?;
         let command = Cmd::new("timeout --kill-after=1m 30m bash")
@@ -137,17 +156,52 @@ impl HostRun {
         log.extend_from_slice(&output.stderr);
         log.extend_from_slice(format!("\nexit={:?}\n", output.status.code()).as_bytes());
         write(&request.with_file_name("command.log"), &log, false)?;
-        if Cmd::new("git diff --binary HEAD")
+        let interruption = match output.status.code() {
+            Some(124) => Some("timeout"),
+            Some(137) | None => Some("oom-or-signal"),
+            _ => None,
+        };
+        if Cmd::new("git rev-parse HEAD")
             .cwd(&self.tree)
             .capture()?
-            != source
+            .trim()
+            != sha
+            || Cmd::new("git diff --binary")
+                .arg(&sha)
+                .cwd(&self.tree)
+                .capture()?
+                != source
         {
-            return Ok(("null".into(), "source-changed".into()));
+            eprintln!("source-changed");
+            return Ok((
+                "null".into(),
+                interruption.unwrap_or("source-changed").into(),
+            ));
         }
+        let receipt = self.receipt(scenario, (&result, &digest), posture, output.status.code());
+        if let Some(outcome) = interruption {
+            match &receipt {
+                Ok((_, diagnostic)) => eprintln!("host process {outcome}; receipt: {diagnostic}"),
+                Err(error) => eprintln!("host process {outcome}; receipt: {:?}", error.message),
+            }
+            return Ok(("null".into(), outcome.into()));
+        }
+        receipt
+    }
+
+    /// Receipt problems remain diagnostics when the process was interrupted.
+    fn receipt(
+        &self,
+        scenario: &str,
+        binding: (&PathBuf, &str),
+        posture: &str,
+        status: Option<i32>,
+    ) -> Result<(String, String), Failure> {
+        let (result, digest) = binding;
         if !result.exists() {
             return Ok((
                 "null".into(),
-                match output.status.code() {
+                match status {
                     Some(124) => "timeout",
                     Some(137) | None => "oom-or-signal",
                     _ => "missing-receipt",
@@ -155,12 +209,12 @@ impl HostRun {
                 .into(),
             ));
         }
-        safe_path(&self.reports, &result)?;
-        let json = read_json(&result)?;
-        if receipts::validate(&json, &digest, scenario.starts_with("mutant-")).is_err() {
+        safe_path(&self.reports, result)?;
+        let json = read_json(result)?;
+        if receipts::validate(&json, digest, scenario.starts_with("mutant-")).is_err() {
             return Ok(("null".into(), "invalid-receipt".into()));
         }
-        let classification = receipts::classify(&json, output.status.code())?;
+        let classification = receipts::classify(&json, status)?;
         if field(&json, ".receipt.build")? == "passed" {
             let installation = PathBuf::from(field(
                 &read_json(&self.root.join("scope.json"))?,
@@ -201,6 +255,13 @@ impl HostRun {
         let digest = sha256_hex(
             &fs::read(&request).map_err(|error| format!("cannot read cleanup request: {error}"))?,
         );
+        let sha = field(&self.plan, ".identity.sha")?;
+        // Inspection errors cannot prevent the safety script from running.
+        let head = Cmd::new("git rev-parse HEAD").cwd(&self.tree).capture();
+        let source = Cmd::new("git diff --binary")
+            .arg(&sha)
+            .cwd(&self.tree)
+            .capture();
         let output = Cmd::new("timeout --kill-after=1m 120s bash")
             .arg(self.root.join("provisioner.sh"))
             .arg("--gate-host-v1")
@@ -214,6 +275,14 @@ impl HostRun {
         if !output.status.success() || !result.exists() {
             return Err("host independent cleanup failed or is missing".into());
         }
+        let after = Cmd::new("git rev-parse HEAD").cwd(&self.tree).capture()?;
+        let changed = Cmd::new("git diff --binary")
+            .arg(&sha)
+            .cwd(&self.tree)
+            .capture()?;
+        if head?.trim() != sha || after.trim() != sha || source? != changed {
+            return Err("host cleanup changed source or HEAD".into());
+        }
         safe_path(&self.reports, &result)?;
         Cmd::new("jaq -e")
             .args(["--arg", "digest", &digest])
@@ -223,8 +292,7 @@ impl HostRun {
             .arg(concat!(
                 "(keys == [\"absent\",\"cleanup\",\"removed\",\"request_sha256\",\"schema\"]) and ",
                 ".schema == 1 and .cleanup == \"passed\" and .request_sha256 == $digest and ",
-                "(.removed+.absent|sort) == ($scope[0].resources|sort) and ",
-                "(.removed+.absent|length) == (.removed+.absent|unique|length)"
+                "(.removed+.absent|sort) == ($scope[0].resources|sort)"
             ))
             .arg(&result)
             .capture()

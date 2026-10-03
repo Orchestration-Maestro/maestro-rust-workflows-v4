@@ -7,17 +7,22 @@ use std::fs;
 use std::path::Path;
 
 /// Restore every tracked byte and reject a provisioner changing tracked inputs.
-pub(super) fn restore(tree: &Path) -> Outcome {
-    Cmd::new("git reset --hard HEAD").cwd(tree).capture()?;
-    let status = Cmd::new("git diff --name-only HEAD").cwd(tree).capture()?;
-    if !status.trim().is_empty() {
+pub(super) fn restore(tree: &Path, sha: &str) -> Outcome {
+    Cmd::new("git reset --hard").arg(sha).cwd(tree).capture()?;
+    let status = Cmd::new("git diff --name-only")
+        .arg(sha)
+        .cwd(tree)
+        .capture()?;
+    if Cmd::new("git rev-parse HEAD").cwd(tree).capture()?.trim() != sha
+        || !status.trim().is_empty()
+    {
         return Err("host source restoration did not recover the baseline".into());
     }
     Ok(())
 }
 
 /// Apply only a single-file patch and compare the actual diff to cargo-mutants' listing.
-pub(super) fn apply(tree: &Path, mutant: &str) -> Result<String, Failure> {
+pub(super) fn apply(tree: &Path, mutant: &str, sha: &str) -> Result<String, Failure> {
     let file = field(mutant, ".file")?;
     let original = field(mutant, ".diff")?;
     let name = field(mutant, ".name")?;
@@ -52,7 +57,10 @@ pub(super) fn apply(tree: &Path, mutant: &str) -> Result<String, Failure> {
         .cwd(tree)
         .stdin_bytes(diff.as_bytes())
         .capture()?;
-    let changed = Cmd::new("git diff --name-only HEAD").cwd(tree).capture()?;
+    let changed = Cmd::new("git diff --name-only")
+        .arg(sha)
+        .cwd(tree)
+        .capture()?;
     if changed.trim() != file {
         return Err("host patch changes more than its exact owned source".into());
     }
@@ -86,7 +94,7 @@ mod tests {
 "name":"src/host.rs:1:1: replace host with ()","diff":"{diff}"}}"#
             );
             assert_eq!(
-                apply(Path::new("/nonexistent"), &mutant)
+                apply(Path::new("/nonexistent"), &mutant, "plan")
                     .unwrap_err()
                     .message
                     .as_deref(),

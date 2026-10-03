@@ -10,6 +10,7 @@ use super::cache;
 use super::checkout::{Checkout, check_out, repository_root};
 use super::environment::{Environment, INHERITED};
 use super::job::{ALWAYS, APPLIED, CHECKS, Local, OTHER_JOBS, OUTCOMES, not_here};
+use crate::checks::mutation_host::host_policy;
 use crate::checks::toolbelt::{install_toolbelt, local_ci_directory};
 use crate::checks::workflow_home::is_workflow_home;
 use crate::runner::{Failure, Outcome, Step, write};
@@ -25,15 +26,26 @@ use std::time::Instant;
 const TOOLS: &[&str] = if cfg!(windows) {
     &[
         "cargo install",
+        "cargo metadata",
         "curl",
         "git",
+        "jaq",
         "mise",
         "powershell.exe",
         "rust-gate",
         "tar",
     ]
 } else {
-    &["cargo install", "curl", "git", "mise", "rust-gate", "tar"]
+    &[
+        "cargo install",
+        "cargo metadata",
+        "curl",
+        "git",
+        "jaq",
+        "mise",
+        "rust-gate",
+        "tar",
+    ]
 };
 
 /// What these commands declare: their inputs, their tools and their reports.
@@ -350,6 +362,11 @@ impl Run {
             println!("{:<12} {time:>9}  {name}", ended.word());
         }
         for (job, reason) in OTHER_JOBS {
+            if *job == "mutation-host"
+                && host_policy(Path::new(self.environment.get("PROJECT")))?.is_none()
+            {
+                continue;
+            }
             println!(
                 "{:<12} {:>9}  job {job}: {reason}",
                 Ended::NotApplied.word(),

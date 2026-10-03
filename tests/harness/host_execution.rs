@@ -144,13 +144,19 @@ if [[ "$scenario" == cleanup ]]; then
   removed='[]'
   absent=$(jaq -c '.resources' "$scope")
   for owned in "$(jaq -r '.scratch' "$scope")" "$installation"; do
-    if [[ -d "$owned" ]]; then
+    if [[ -e "$owned" || -L "$owned" ]]; then
+      [[ ! -L "$owned" && -d "$owned" ]]
       if [[ "$owned" == "$installation" ]]; then
         [[ "${HOST_FIXTURE_INSTALL:-false}" == true ]]
+        [[ $(sudo stat -c '%u:%g' "$installation") == 0:0 ]]
+        [[ ! -L "$installation/.gate-host-scope" ]]
         [[ $(sudo cat "$installation/.gate-host-scope") == "$scope_hash" ]]
         sudo rm -r -- "$installation"
       else
         [[ "$owned" == "${RUNNER_TEMP%/}/host-executor/scratch" ]]
+        [[ $(stat -c %u "$owned") == "$(id -u)" ]]
+        [[ ! -L "$owned/.gate-host-scope" && -f "$owned/.gate-host-scope" ]]
+        [[ $(cat "$owned/.gate-host-scope") == "$scope_hash" ]]
         rm -r -- "$owned"
       fi
       removed=$(jaq -cn --argjson r "$removed" --arg p "$owned" '$r+[$p]')
@@ -161,20 +167,49 @@ if [[ "$scenario" == cleanup ]]; then
     removed=$(jaq -cn --argjson r "$removed" '$r+["outside-scope.service"]')
   fi
   if [[ "${HOST_FIXTURE_MODE:-ordinary}" == cleanup-fail ]]; then exit 1; fi
+  mode=${HOST_FIXTURE_MODE:-ordinary}
+  tree="${scope%/*}/checkout"
+  if [[ "$mode" == cleanup-commit || "$mode" == cleanup-source ]]; then
+    printf '\n// cleanup committed change\n' >> "$tree/src/lib.rs"
+    git -C "$tree" add src/lib.rs
+  fi
+  if [[ "$mode" == cleanup-commit || "$mode" == cleanup-empty ]]; then
+    git -C "$tree" -c commit.gpgsign=false commit --allow-empty -qm 'cleanup source change'
+  fi
+  if [[ "$mode" == cleanup-reset ]]; then
+    git -C "$tree" reset --hard "$(get '.identity.sha')"
+  fi
   jaq -n --arg hash "$request_hash" --argjson removed "$removed" --argjson absent "$absent" \
     '{schema:1,request_sha256:$hash,cleanup:"passed",removed:$removed,absent:$absent}' > "$result"
+  case "${HOST_FIXTURE_MODE:-ordinary}" in
+    cleanup-schema) change='.schema=2' ;;
+    cleanup-binding) change='.request_sha256="wrong"' ;;
+    cleanup-unknown) change='.unknown=true' ;;
+    *) exit 0 ;;
+  esac
+  jaq "$change" "$result" > "$result.tmp"
+  mv "$result.tmp" "$result"
   exit 0
 fi
+printf '%s\n' "$scope_hash" > "$(dirname "$scratch")/.gate-host-scope"
 mode=${HOST_FIXTURE_MODE:-ordinary}
+if [[ "$mode" == source-* && "$scenario" == baseline-before ]]; then
+  if [[ "$mode" == source-commit ]]; then printf '\n// committed source change\n' >> src/lib.rs; fi
+  git add src/lib.rs
+  git -c commit.gpgsign=false commit --allow-empty -qm 'changed source'
+fi
 if [[ "$mode" == hang ]]; then
   touch "$scratch/active"
   sleep 60
 fi
 cache=$(dirname "$scratch")/build-cache
+if [[ "${HOST_FIXTURE_WARM_CACHE:-false}" == true ]]; then
+  cache="${RUNNER_TEMP%/}/host-executor/build-cache"
+fi
 cargo test --locked --offline --features fixture/host-tests --no-run --lib --message-format=json \
   --target-dir "$cache" > "$reports/cargo-test.json" 2> "$reports/build.log"
 cargo build --locked --offline --features fixture/host-tests --message-format=json \
-  --target-dir "$cache" >> "$reports/cargo-bootstrap.json" 2>> "$reports/build.log"
+  --target-dir "$cache" > "$reports/cargo-bootstrap.json" 2>> "$reports/build.log"
 test=$(jaq -r 'select(.reason == "compiler-artifact"
  and .profile.test == true and .executable != null)|.executable' "$reports/cargo-test.json")
 bootstrap=$(jaq -r 'select(.reason == "compiler-artifact"
@@ -283,6 +318,19 @@ if [[ "$scenario" == mutant-* ]]; then
     incomplete)
       jaq '.receipt.phases.recover_preparing="not-run"' "$result" > "$result.tmp"
       mv "$result.tmp" "$result" ;;
+    timeout-invalid|oom-invalid)
+      printf '{}' > "$result"
+      if [[ "$mode" == oom-invalid ]]; then kill -KILL $$; fi
+      exit 124 ;;
+    timeout-artifact)
+      printf 'stale executable\n' > "$test"
+      exit 124 ;;
+    timeout-stale)
+      jaq --slurpfile b "$(dirname "$reports")/baseline-before/result.json" \
+        '.receipt.test_sha256=$b[0].receipt.test_sha256|
+.receipt.bootstrap_sha256=$b[0].receipt.bootstrap_sha256' "$result" > "$result.tmp"
+      mv "$result.tmp" "$result"
+      exit 124 ;;
     timeout) timeout 0.05s sleep 60 ;;
     oom) kill -KILL $$ ;;
     stale)

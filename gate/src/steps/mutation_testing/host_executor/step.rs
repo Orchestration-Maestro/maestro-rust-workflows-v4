@@ -77,8 +77,11 @@ pub(in crate::steps::mutation_testing) fn cleanup() -> Outcome {
 
 /// Teardown and restoration both run, even when either one fails.
 fn cleanup_host(host: &HostRun) -> Outcome {
-    let restored = tree::restore(&host.tree);
     let cleaned = host.cleanup();
+    let restored = tree::restore(&host.tree, &field(&host.plan, ".identity.sha")?);
+    if let Err(error) = &restored {
+        eprintln!("host source restoration failed: {:?}", error.message);
+    }
     cleaned.and(restored)
 }
 
@@ -186,8 +189,8 @@ fn execute(host: &HostRun) -> Outcome {
     let posture = field(&before, ".posture|tojson")?;
     let mutants = field(&host.plan, ".mutants[]|tojson")?;
     for (index, mutant) in mutants.lines().enumerate() {
-        tree::restore(&host.tree)?;
-        let patched = tree::apply(&host.tree, mutant)?;
+        tree::restore(&host.tree, &field(&host.plan, ".identity.sha")?)?;
+        let patched = tree::apply(&host.tree, mutant, &field(&host.plan, ".identity.sha")?)?;
         let (result, mut outcome) =
             host.scenario(&format!("mutant-{index}"), mutant, &patched, &posture)?;
         if result != "null" {
@@ -216,7 +219,7 @@ fn execute(host: &HostRun) -> Outcome {
                 .capture()?,
         );
         progress(host, &before, &outcomes)?;
-        tree::restore(&host.tree)?;
+        tree::restore(&host.tree, &field(&host.plan, ".identity.sha")?)?;
     }
     let (after, after_outcome) = host.scenario("baseline-after", "null", "", &posture)?;
     successful &= after_outcome == "survived";

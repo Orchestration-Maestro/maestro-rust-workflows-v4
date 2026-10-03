@@ -28,6 +28,11 @@ fn executor_rejects_wrong_sha_attempt_script_source_and_unknown_plan_fields() {
         ("/packages", json!(["other"])),
         ("/workflow_revision", json!("wrong")),
         ("/mutants/0/name", json!("")),
+        ("/mutants/0/package", json!("foreign")),
+        ("/mutants/0/file", json!("src/foreign.rs")),
+        ("/mutants/0/diff", json!("")),
+        ("/mutants/0/function/span/start/line", json!(2)),
+        ("/mutants/0/function/span/end/line", json!(0)),
         ("/mutants/0/function/function_name", json!("")),
         ("/provisioner_sha256", json!("0".repeat(64))),
         ("/source_sha256", json!({})),
@@ -44,6 +49,17 @@ fn executor_rejects_wrong_sha_attempt_script_source_and_unknown_plan_fields() {
         );
         assert!(!fixture.root.join("host-executor").exists());
     }
+    let mut duplicated = original.clone();
+    duplicated["mutants"]
+        .as_array_mut()
+        .unwrap()
+        .push(original["mutants"][0].clone());
+    fs::write(&path, duplicated.to_string()).unwrap();
+    refused(
+        &fixture.run_body("rust-gate mutants-host"),
+        "host executor identity, policy or source differs from its plan",
+    );
+    assert!(!fixture.root.join("host-executor").exists());
     let mut altered = original.clone();
     altered["unknown"] = json!(true);
     fs::write(&path, altered.to_string()).unwrap();
@@ -127,4 +143,31 @@ fn scope_resource_names_refuse_nonnumeric_run_and_attempt_identities() {
         &fixture.run_body("rust-gate mutants-host"),
         "host scope requires numeric run and attempt identities",
     );
+}
+
+#[test]
+fn live_checkout_head_drift_refuses_before_host_administration() {
+    let mut fixture = host_fixture();
+    fixture.set("WORKFLOW_REVISION", "");
+    succeeds(&fixture.run_body("rust-gate mutants-plan"));
+    let path = fixture.root.join("reports/mutation-host-plan.json");
+    fixture.set("MUTATION_HOST_PLAN", &path.display().to_string());
+    let project = fixture.root.join("project");
+    fixture_git(
+        &project,
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "--quiet",
+            "-m",
+            "live drift",
+        ],
+    );
+    refused(
+        &fixture.run_body("rust-gate mutants-host"),
+        "host executor identity, policy or source differs from its plan",
+    );
+    assert!(!fixture.root.join("host-executor").exists());
 }
