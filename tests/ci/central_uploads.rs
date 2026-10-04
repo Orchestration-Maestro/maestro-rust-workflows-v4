@@ -2,7 +2,7 @@
 //! the coverage and test results to Codecov, from the organization's check on
 //! a pull request and from the merge group that lands on the default branch.
 
-use crate::harness::{root, tool_rows, workflow};
+use crate::harness::{capture, root, tool, tool_rows, workflow};
 use serde_json::{Value, json};
 use std::fs;
 
@@ -14,6 +14,7 @@ use std::fs;
 /// failed, since its commit then never lands.
 const UPLOADS_RUN: &str = concat!(
     "${{ !cancelled() && needs.checks.result == 'success' && ",
+    "needs.release.result == 'success' && ",
     "((needs.checks.outputs.mutation-mode != 'sharded' && ",
     "needs.checks.outputs.mutation-engine-count == '0' && ",
     "needs.checks.outputs.mutation-engine-default-count == '0' && ",
@@ -27,7 +28,7 @@ const UPLOADS_RUN: &str = concat!(
 
 /// The jobs the uploads wait for: the checks that wrote the reports, and the
 /// portability legs that decide whether a merge group's commit lands.
-const UPLOADS_NEED: [&str; 3] = ["checks", "portability", "mutation-summary"];
+const UPLOADS_NEED: [&str; 4] = ["checks", "portability", "mutation-summary", "release"];
 
 #[test]
 fn sarif_reports_upload_from_the_organizations_check_alone() {
@@ -232,4 +233,56 @@ fn every_caller_of_ci_grants_the_scopes_its_uploads_ask() {
         callers >= 6,
         "only {callers} callers of ci.yml were checked"
     );
+}
+
+#[test]
+fn uploaders_wait_for_successful_release_before_writing_baselines() {
+    let ci = workflow("ci");
+    for job in ["upload", "coverage"] {
+        for release in ["success", "failure", "cancelled", "skipped", ""] {
+            let mut expression = ci["jobs"][job]["if"]
+                .as_str()
+                .unwrap()
+                .trim_start_matches("${{ ")
+                .trim_end_matches(" }}")
+                .to_owned();
+            for (name, value) in [
+                ("cancelled()", "false"),
+                ("needs.checks.result", "'success'"),
+                ("needs.release.result", "RELEASE"),
+                ("needs.checks.outputs.mutation-mode", "'disabled'"),
+                ("needs.checks.outputs.mutation-engine-count", "'0'"),
+                ("needs.checks.outputs.mutation-engine-default-count", "'0'"),
+                ("needs.checks.outputs.mutation-host-count", "'0'"),
+                ("needs.mutation-summary.result", "'skipped'"),
+                ("needs.portability.result", "'success'"),
+                ("github.event_name", "'merge_group'"),
+                ("inputs.artifact-key", "''"),
+                (
+                    "github.event.pull_request.head.repo.full_name",
+                    "'owner/repo'",
+                ),
+                ("github.event.pull_request", "false"),
+                ("github.repository", "'owner/repo'"),
+            ] {
+                expression = expression.replace(name, value);
+            }
+            expression = expression
+                .replace("RELEASE", &format!("'{release}'"))
+                .replace("&&", " and ")
+                .replace("||", " or ")
+                .replace("!false", "true")
+                .replace('\'', "\"");
+            let result = capture(tool("jaq").args(["-n", &expression]));
+            assert_eq!(
+                result.trim(),
+                if release == "success" {
+                    "true"
+                } else {
+                    "false"
+                },
+                "{job}/{release}"
+            );
+        }
+    }
 }

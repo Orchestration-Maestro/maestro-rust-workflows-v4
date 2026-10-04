@@ -629,8 +629,6 @@ jobs:
       PROJECT: ${{ github.workspace }}/${{ needs.mutation-plan.outputs.directory }}
       REPORTS: ${{ github.workspace }}/rust-reports
       CARGO_TARGET_DIR: ${{ github.workspace }}/rust-target
-      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
-      RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ needs.mutation-plan.outputs.artifact-name }}
@@ -646,6 +644,7 @@ jobs:
           ref: ${{ job.workflow_sha }}
           persist-credentials: false
       - name: Build the gate
+        id: release-gate-build
         uses: ./.github/actions/gate
       # Replaces the gate's checkout: another repository's is deleted first.
       - name: Checkout consumer revision
@@ -666,15 +665,27 @@ jobs:
             cargo-sbom psastras/sbom-rs/releases/download/cargo-sbom-v0.10.0/cargo-sbom-x86_64-unknown-linux-gnu 860a50d3e009c72fefc12506869cc11ea34d240c65da65cda2c491ed2aaa34f3
       - name: Install the toolchain
         run: rust-gate tools
+        env:
+          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
+          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       - name: Release build, verified packages and SBOMs
         id: build
         run: rust-gate build
+        env:
+          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
+          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       - name: Reproducible build and binary hardening
         id: hardening
         run: rust-gate hardening
+        env:
+          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
+          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       - name: Stage immutable release payload
         id: stage
         run: rust-gate stage
+        env:
+          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
+          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       - name: Upload release payload
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -1418,9 +1429,10 @@ jobs:
       - checks
       - portability
       - mutation-summary
+      - release
     # A fork pull request's token cannot write security events; its SARIF
     # stays in the reports artifact.
-    if: ${{ !cancelled() && needs.checks.result == 'success' && ((needs.checks.outputs.mutation-mode != 'sharded' && needs.checks.outputs.mutation-engine-count == '0' && needs.checks.outputs.mutation-engine-default-count == '0' && needs.checks.outputs.mutation-host-count == '0') || needs.mutation-summary.result == 'success') && (github.event_name != 'merge_group' || needs.portability.result == 'success' || needs.portability.result == 'skipped') && inputs.artifact-key == '' && github.event_name != 'pull_request_target' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.checks.result == 'success' && needs.release.result == 'success' && ((needs.checks.outputs.mutation-mode != 'sharded' && needs.checks.outputs.mutation-engine-count == '0' && needs.checks.outputs.mutation-engine-default-count == '0' && needs.checks.outputs.mutation-host-count == '0') || needs.mutation-summary.result == 'success') && (github.event_name != 'merge_group' || needs.portability.result == 'success' || needs.portability.result == 'skipped') && inputs.artifact-key == '' && github.event_name != 'pull_request_target' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -1458,9 +1470,10 @@ jobs:
       - checks
       - portability
       - mutation-summary
+      - release
     # A fork pull request gets no OIDC token; its reports stay in the reports
     # artifact.
-    if: ${{ !cancelled() && needs.checks.result == 'success' && ((needs.checks.outputs.mutation-mode != 'sharded' && needs.checks.outputs.mutation-engine-count == '0' && needs.checks.outputs.mutation-engine-default-count == '0' && needs.checks.outputs.mutation-host-count == '0') || needs.mutation-summary.result == 'success') && (github.event_name != 'merge_group' || needs.portability.result == 'success' || needs.portability.result == 'skipped') && inputs.artifact-key == '' && github.event_name != 'pull_request_target' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && needs.checks.result == 'success' && needs.release.result == 'success' && ((needs.checks.outputs.mutation-mode != 'sharded' && needs.checks.outputs.mutation-engine-count == '0' && needs.checks.outputs.mutation-engine-default-count == '0' && needs.checks.outputs.mutation-host-count == '0') || needs.mutation-summary.result == 'success') && (github.event_name != 'merge_group' || needs.portability.result == 'success' || needs.portability.result == 'skipped') && inputs.artifact-key == '' && github.event_name != 'pull_request_target' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

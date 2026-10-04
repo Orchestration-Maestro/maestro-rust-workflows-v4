@@ -16,7 +16,8 @@ commands, and `just check` runs them against the example fixtures. See
 [rust-gate.md](rust-gate.md).
 
 The `release` job starts alongside `checks` from validated `mutation-plan`
-outputs. It runs release tests before the auditable build, then the clean
+outputs. The gate bootstraps with its pinned compiler before step-local consumer
+compiler and target settings apply. It runs release tests before the auditable build, then the clean
 hardening rebuild at the same target path, and stages the immutable payload.
 Its workspace, private Cargo state and target directory belong to its own runner.
 The existing build and hardening gates still verify packages, SBOMs and binaries.
@@ -24,10 +25,13 @@ Required Rust CI waits for this job and refuses failed, cancelled, skipped or
 missing release evidence before exposing its same-SHA artifact outputs.
 
 The canonical diagnostic reports keep their existing names for SARIF and Codecov.
+Both upload jobs wait for successful release checks before writing their baselines.
 Release diagnostics use `<artifact-name>-release-reports`. Preliminary scorecards
 mark release controls as not-run; Required Rust CI joins their real outcomes into
 `<artifact-name>-final-scorecard`, the authoritative final scorecard. Missing or
-invalid outcomes are failed, never counted as passed. A failed final scorecard
+invalid outcomes are failed, never counted as passed. Finalization requires exactly
+one enforced row for each release control and converts remaining not-run states to
+failed. Preliminary cards retain their not-run states. A failed final scorecard
 upload also keeps Required Rust CI red.
 
 ## How a repository is enforced

@@ -143,49 +143,7 @@ fn finalize() -> Outcome {
         )
     };
     let path = job.earlier("scorecard.json");
-    let rows = Cmd::new("jaq -r")
-        .arg(".controls[] | [.control,.kind,.state] | @tsv")
-        .arg(&path)
-        .capture()?;
-    let mut controls = Vec::new();
-    let mut mutation_seen = false;
-    for row in rows.lines() {
-        let mut columns = row.split('\t');
-        let name = columns.next().unwrap_or_default();
-        let kind = columns.next().unwrap_or_default();
-        let state_text = columns.next().unwrap_or_default();
-        if name.is_empty() || kind.is_empty() || columns.next().is_some() {
-            return Err("scorecard controls have an invalid shape".into());
-        }
-        let mut state =
-            State::parse(state_text).ok_or("scorecard contains an unknown control state")?;
-        if name == "mutation testing" {
-            if mutation_seen || kind != "optional" {
-                return Err("scorecard mutation control is duplicated or invalid".into());
-            }
-            mutation_seen = true;
-            if let Some(updated) = mutation_state {
-                state = updated;
-            }
-        }
-        if release_finalize {
-            state = release_state(name)?.unwrap_or(state);
-        }
-        if !release_finalize
-            && name == "changed-line coverage"
-            && optional("MUTATION_HOST_COUNT")?
-                .parse::<usize>()
-                .is_ok_and(|count| count > 0)
-        {
-            state = State::parse(&optional("CHANGED_COVERAGE_STATE")?)
-                .filter(|state| matches!(state, State::Passed | State::Failed | State::NotRun))
-                .unwrap_or(State::NotRun);
-        }
-        controls.push((name.to_owned(), kind.to_owned(), state));
-    }
-    if !mutation_seen {
-        return Err("scorecard has no mutation testing control".into());
-    }
+    let controls = joined_controls(&path, release_finalize, mutation_state)?;
     let revision = field(&path, ".revision")?;
     let toolchain = field(&path, ".toolchain")?;
     if revision.is_empty() || toolchain.is_empty() {
@@ -220,6 +178,76 @@ fn finalize() -> Outcome {
         scorecard.badge().as_bytes(),
         false,
     )
+}
+
+/// Validate the incoming controls and join only the evidence this mode owns.
+fn joined_controls(
+    path: &Path,
+    release_finalize: bool,
+    mutation_state: Option<State>,
+) -> Result<Vec<(String, String, State)>, Failure> {
+    let rows = Cmd::new("jaq -r")
+        .arg(".controls[] | [.control,.kind,.state] | @tsv")
+        .arg(path)
+        .capture()?;
+    let mut controls = Vec::new();
+    let mut mutation_seen = false;
+    let mut release_seen = Vec::new();
+    for row in rows.lines() {
+        let mut columns = row.split('\t');
+        let name = columns.next().unwrap_or_default();
+        let kind = columns.next().unwrap_or_default();
+        let state_text = columns.next().unwrap_or_default();
+        if name.is_empty() || kind.is_empty() || columns.next().is_some() {
+            return Err("scorecard controls have an invalid shape".into());
+        }
+        let mut state =
+            State::parse(state_text).ok_or("scorecard contains an unknown control state")?;
+        if name == "mutation testing" {
+            if mutation_seen || kind != "optional" {
+                return Err("scorecard mutation control is duplicated or invalid".into());
+            }
+            mutation_seen = true;
+            if let Some(updated) = mutation_state {
+                state = updated;
+            }
+        }
+        let release_state = if release_finalize {
+            release_state(name)?
+        } else {
+            None
+        };
+        if let Some(updated) = release_state {
+            if kind != "enforced" || release_seen.contains(&name) {
+                return Err(
+                    "scorecard release controls must appear exactly once and be enforced".into(),
+                );
+            }
+            release_seen.push(name);
+            state = updated;
+        }
+        if release_finalize && state == State::NotRun {
+            state = State::Failed;
+        }
+        if !release_finalize
+            && name == "changed-line coverage"
+            && optional("MUTATION_HOST_COUNT")?
+                .parse::<usize>()
+                .is_ok_and(|count| count > 0)
+        {
+            state = State::parse(&optional("CHANGED_COVERAGE_STATE")?)
+                .filter(|state| matches!(state, State::Passed | State::Failed | State::NotRun))
+                .unwrap_or(State::NotRun);
+        }
+        controls.push((name.to_owned(), kind.to_owned(), state));
+    }
+    if !mutation_seen {
+        return Err("scorecard has no mutation testing control".into());
+    }
+    if release_finalize && release_seen.len() != 3 {
+        return Err("scorecard release controls must appear exactly once and be enforced".into());
+    }
+    Ok(controls)
 }
 
 /// Replace release rows only at the final join; incomplete evidence is failed, never green.
