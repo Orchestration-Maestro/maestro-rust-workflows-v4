@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.9.1](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.9.0...v4.9.1) (2026-10-04)
+
+
+### Performance Improvements
+
+* **ci:** run release and hardening checks as their own job ([#128](https://github.com/Orchestration-Maestro/maestro-rust-workflows/issues/128)) ([0a81125](https://github.com/Orchestration-Maestro/maestro-rust-workflows/commit/0a811252735d473e81f2246d9d1581f733c1c0ba))
+* **ci:** start portability after mutation planning ([#127](https://github.com/Orchestration-Maestro/maestro-rust-workflows/issues/127)) ([dc4994e](https://github.com/Orchestration-Maestro/maestro-rust-workflows/commit/dc4994e25c14545d43b686756544fa6d12adb130))
+
 ## [4.9.0](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.8.7...v4.9.0) (2026-10-03)
 
 
