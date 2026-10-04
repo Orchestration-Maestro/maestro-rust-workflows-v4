@@ -100,7 +100,7 @@ fn body_follows_the_shell_policy(command: &str) {
 }
 
 #[test]
-fn build_state_stays_outside_every_consumer_checkout() {
+fn explicit_build_state_paths_stay_outside_every_consumer_checkout() {
     for entry in fs::read_dir(root().join(".github/workflows")).unwrap() {
         let path = entry.unwrap().path();
         let data = workflow(path.file_stem().unwrap().to_str().unwrap());
@@ -110,8 +110,10 @@ fn build_state_stays_outside_every_consumer_checkout() {
                 .flat_map(|job| job["steps"].as_array().into_iter().flatten()),
         );
         for item in items {
-            for key in ["CARGO_TARGET_DIR", "CARGO_HOME", "RUSTUP_HOME"] {
-                let value = item["env"][key].as_str().unwrap_or_default();
+            for (key, value) in ["CARGO_TARGET_DIR", "CARGO_HOME", "RUSTUP_HOME"]
+                .into_iter()
+                .filter_map(|key| item["env"][key].as_str().map(|value| (key, value)))
+            {
                 assert!(!value.contains("github.workspace"), "{key}: {value}");
             }
         }

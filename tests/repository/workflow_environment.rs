@@ -6,6 +6,49 @@ use std::iter;
 use std::os::unix::fs::symlink;
 
 #[test]
+fn every_consumer_job_has_an_explicit_build_target_policy() {
+    let data = workflow("ci");
+    for (id, job) in data["jobs"].as_object().unwrap() {
+        let steps = job["steps"].as_array().unwrap();
+        let _policy = match id.as_str() {
+            "release" => {
+                for command in ["tools", "build", "hardening", "stage"] {
+                    let step = steps
+                        .iter()
+                        .find(|step| step["run"] == format!("rust-gate {command}"))
+                        .unwrap();
+                    assert_eq!(
+                        step["env"]["CARGO_TARGET_DIR"], "${{ runner.temp }}/rust-target",
+                        "{id}/{command} must use the step-local runner-temp target"
+                    );
+                }
+                "step-local runner-temp target"
+            }
+            "checks"
+            | "mutation-plan"
+            | "mutations"
+            | "mutation-engine"
+            | "mutation-engine-default" => {
+                // validate exports CARGO_TARGET_DIR from RUNNER_TEMP through GITHUB_ENV.
+                assert!(
+                    steps.iter().any(|step| step["run"] == "rust-gate validate"
+                        && step.get("if").is_none()),
+                    "{id} must obtain its target through unconditional validate"
+                );
+                "target exported through validate"
+            }
+            // Bare Cargo on native runners has no gate validate/environment export step.
+            "portability" => "checkout-local Cargo default",
+            "mutation-windows" | "mutation-host" => "disposable mutation trees",
+            "mutation-summary" | "upload" | "coverage" | "gate" => {
+                "evidence aggregation and uploads do not build consumer code"
+            }
+            _ => panic!("classify the build-target policy of new job {id}"),
+        };
+    }
+}
+
+#[test]
 fn required_checks_budget_covers_cold_native_engine_builds() {
     assert_eq!(workflow("ci")["jobs"]["checks"]["timeout-minutes"], 240);
 }
