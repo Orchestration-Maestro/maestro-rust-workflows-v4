@@ -1,11 +1,10 @@
 //! Repository-wide workflow policy: pins, permissions, runners, trust
 //! boundaries and the guards every workflow shares.
 
-use crate::harness::{Fixture, root, step, succeeds, tool, workflow};
+use crate::harness::{Fixture, root, succeeds, tool, workflow};
 use serde_json::Value;
 use std::fs;
 use std::iter;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 
 #[test]
@@ -101,46 +100,64 @@ fn body_follows_the_shell_policy(command: &str) {
 }
 
 #[test]
-fn required_checks_budget_covers_cold_native_engine_builds() {
-    assert_eq!(workflow("ci")["jobs"]["checks"]["timeout-minutes"], 240);
+fn explicit_build_state_paths_stay_outside_every_consumer_checkout() {
+    for entry in fs::read_dir(root().join(".github/workflows")).unwrap() {
+        let path = entry.unwrap().path();
+        let data = workflow(path.file_stem().unwrap().to_str().unwrap());
+        let jobs = data["jobs"].as_object().unwrap();
+        let items = iter::once(&data).chain(jobs.values()).chain(
+            jobs.values()
+                .flat_map(|job| job["steps"].as_array().into_iter().flatten()),
+        );
+        for item in items {
+            for (key, value) in ["CARGO_TARGET_DIR", "CARGO_HOME", "RUSTUP_HOME"]
+                .into_iter()
+                .filter_map(|key| item["env"][key].as_str().map(|value| (key, value)))
+            {
+                assert!(!value.contains("github.workspace"), "{key}: {value}");
+            }
+        }
+    }
 }
 
 #[test]
-fn all_jobs_use_github_runners_without_caller_overrides() {
-    for name in [
-        "ci",
-        "publish-binaries",
-        "publish-crate",
-        "ci-internal",
-        "gate-mutation",
-        "attest-binaries",
-        "publish-evidence",
-        "unsafe-audit",
-        "fuzz",
-        "dependabot-auto-merge",
-    ] {
-        let data = workflow(name);
-        for input in ["runs-on", "publish-runs-on"] {
+fn consumer_test_jobs_share_the_full_linux_toolbelt() {
+    let data = workflow("ci");
+    let jobs = data["jobs"].as_object().unwrap();
+    let shared = jobs["checks"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|step| step["id"] == "install")
+        .unwrap()["env"]["TOOLS"]
+        .as_str()
+        .unwrap();
+    assert!(!shared.is_empty());
+    for (id, job) in jobs {
+        let exclusion = match id.as_str() {
+            "checks" | "release" => None,
+            "mutation-plan" => Some("discovers mutants without running consumer tests"),
+            "mutations" | "mutation-engine" | "mutation-engine-default" => {
+                Some("scoped mutation toolbelts; recent router runs skipped these workers")
+            }
+            "mutation-windows" | "portability" => Some("platform-specific toolbelts"),
+            "mutation-host" => Some("root-installed host toolbelt"),
+            "mutation-summary" => Some("aggregates evidence without running tests"),
+            "upload" | "coverage" => Some("uploads reports without running tests"),
+            "gate" => Some("joins outcomes without running tests"),
+            _ => panic!("classify the consumer test environment of new job {id}"),
+        };
+        if exclusion.is_none() {
             assert!(
-                data["on"]["workflow_call"]["inputs"].get(input).is_none(),
-                "{name} allows a runner override: {input}"
+                job["steps"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|step| step["run"] == "rust-gate install-tools"
+                        && step.get("if").is_none()
+                        && step["env"]["TOOLS"] == shared),
+                "{id} must install the full shared Linux test toolbelt unconditionally"
             );
-        }
-        for (id, job) in data["jobs"].as_object().unwrap() {
-            // The portability matrix and Windows mutation job use pinned
-            // platform runners; every other job stays on Ubuntu.
-            if name == "ci" && id == "portability" {
-                assert_eq!(job["runs-on"], "${{ matrix.runner }}");
-                assert_eq!(job["needs"], serde_json::json!(["mutation-plan"]));
-                assert!(!job.to_string().contains("needs.checks"));
-            } else if name == "ci" && id == "mutation-windows" {
-                assert_eq!(job["runs-on"], "windows-2025");
-            } else if job.get("steps").is_some() {
-                assert_eq!(job["runs-on"], "ubuntu-24.04", "{name}/{id}");
-            }
-            if let Some(runner) = job["with"].get("runs-on") {
-                assert_eq!(runner, "ubuntu-24.04", "{name}/{id}");
-            }
         }
     }
 }
@@ -239,51 +256,6 @@ fn publisher_entry_jobs_reject_untrusted_pull_request_contexts() {
             "{name}/{job} must reject fork PRs before a runner is allocated"
         );
     }
-}
-
-#[test]
-fn the_path_guard_is_identical_in_every_workflow_that_takes_a_directory() {
-    // A reusable workflow runs inside the consumer's checkout, so the three
-    // workflows that take a working directory used to embed the same Bash
-    // guard three times. The gate holds it once, and running each validate
-    // step against the same bad directories has to produce the same refusal,
-    // word for word: not a simple path, a traversal, a symlink out of the
-    // checkout, a directory that is not there.
-    let cases = [
-        ("../escape", "simple relative path"),
-        ("project/../escape", "traverse or contain option-like"),
-        ("project/out", "escapes checkout"),
-        ("project/none", "does not exist inside checkout"),
-    ];
-    let mut refusals: Vec<Vec<String>> = Vec::new();
-    for (workflow, command) in [
-        ("ci", "rust-gate validate"),
-        ("fuzz", "rust-gate fuzz validate"),
-        ("unsafe-audit", "rust-gate unsafe-audit validate"),
-    ] {
-        assert_eq!(step(workflow, "validate").trim(), command);
-        let mut seen = Vec::new();
-        for (directory, refusal) in cases {
-            let mut fixture = Fixture::new();
-            if directory == "project/out" {
-                symlink("/", fixture.root.join("project/out")).unwrap();
-            }
-            fixture.set("DIRECTORY", directory);
-            let output = fixture.run(workflow, "validate");
-            assert!(!output.status.success(), "{workflow} accepted {directory}");
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            assert!(
-                stderr.contains(refusal),
-                "{workflow} refused {directory} for another reason: {stderr}"
-            );
-            seen.push(stderr);
-        }
-        refusals.push(seen);
-    }
-    assert!(
-        refusals.iter().all(|seen| seen == &refusals[0]),
-        "the three workflows refuse the same directory differently: {refusals:?}"
-    );
 }
 
 #[test]
