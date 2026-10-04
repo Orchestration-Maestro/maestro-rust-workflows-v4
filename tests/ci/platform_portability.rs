@@ -80,33 +80,38 @@ fn requested_platforms_must_pass_for_the_required_status() {
 fn the_portability_job_tests_the_validated_project_on_each_runner() {
     let ci = workflow("ci");
     let job = &ci["jobs"]["portability"];
-    // After checks, so the directory and toolchain it uses were validated.
-    assert_eq!(job["needs"], json!(["checks"]));
-    assert_eq!(job["if"], "${{ needs.checks.outputs.platforms != '' }}");
+    // Planning validates the directory and toolchain before either job starts.
+    assert_eq!(job["needs"], json!(["mutation-plan"]));
+    assert_eq!(
+        job["if"],
+        "${{ needs.mutation-plan.outputs.platforms != '' }}"
+    );
     assert_eq!(
         job["strategy"]["matrix"]["runner"],
-        "${{ fromJSON(needs.checks.outputs.platforms) }}"
+        "${{ fromJSON(needs.mutation-plan.outputs.platforms) }}"
     );
+    assert_eq!(job["timeout-minutes"], 45);
     assert_eq!(job["strategy"]["fail-fast"], false);
     assert_eq!(job["runs-on"], "${{ matrix.runner }}");
     assert_eq!(job["permissions"], json!({"contents": "read"}));
     assert_eq!(
         job["env"]["RUSTUP_TOOLCHAIN"],
-        "${{ needs.checks.outputs.toolchain }}"
+        "${{ needs.mutation-plan.outputs.toolchain }}"
     );
     // A job's own run defaults replace the workflow's, so the job names Bash
     // again: Windows would otherwise run the bodies in PowerShell, where
     // "$RUSTUP_TOOLCHAIN" is not the environment variable.
     assert_eq!(
         job["defaults"]["run"],
-        json!({"shell": "bash", "working-directory": "${{ needs.checks.outputs.directory }}"})
+        json!({
+            "shell": "bash",
+            "working-directory": "${{ needs.mutation-plan.outputs.directory }}"
+        })
     );
     let steps = job["steps"].as_array().unwrap();
-    assert!(
-        steps[0]["uses"]
-            .as_str()
-            .unwrap()
-            .starts_with("actions/checkout@")
+    assert_eq!(
+        steps[0]["uses"],
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
     );
     assert_eq!(steps[0]["with"]["persist-credentials"], false);
     let bodies: Vec<&str> = steps[1..]
@@ -123,21 +128,22 @@ fn the_portability_job_tests_the_validated_project_on_each_runner() {
 }
 
 #[test]
-fn checks_hand_the_runners_to_portability_and_the_result_to_the_required_status() {
+fn planning_hands_validated_outputs_to_portability_without_changing_required_status() {
     let ci = workflow("ci");
-    let checks = &ci["jobs"]["checks"]["outputs"];
+    let job = &ci["jobs"]["portability"];
     assert_eq!(
-        checks["platforms"],
-        "${{ steps.validate.outputs.platforms }}"
+        job.to_string()
+            .matches("needs.mutation-plan.outputs.")
+            .count(),
+        4
     );
-    assert_eq!(
-        checks["toolchain"],
-        "${{ steps.validate.outputs.toolchain }}"
-    );
-    assert_eq!(
-        checks["directory"],
-        "${{ steps.validate.outputs.directory }}"
-    );
+    let steps = job["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0]["with"]["ref"], "${{ github.sha }}");
+    let plan = &ci["jobs"]["mutation-plan"]["outputs"];
+    assert_eq!(plan["platforms"], "${{ steps.validate.outputs.platforms }}");
+    assert_eq!(plan["toolchain"], "${{ steps.validate.outputs.toolchain }}");
+    assert_eq!(plan["directory"], "${{ steps.validate.outputs.directory }}");
     let gate = &ci["jobs"]["gate"];
     assert_eq!(
         gate["needs"],
