@@ -33,6 +33,11 @@ pub(crate) const STEPS: &[Step] = &[Step {
         "WINDOWS_MUTATIONS_RESULT",
         "PORTABILITY",
         "RESULT",
+        "RELEASE_RESULT",
+        "OUT_BUILD",
+        "OUT_HARDENING",
+        "OUT_STAGE",
+        "FINAL_SCORECARD_RESULT",
         "RUNNERS",
     ],
     tools: &[],
@@ -46,6 +51,16 @@ fn run() -> Outcome {
     summary(&format!("Rust checks: {result}\n"))?;
     if result != "success" {
         return Err("Required Rust checks failed or were skipped".into());
+    }
+    let release = optional("RELEASE_RESULT")?;
+    summary(&format!("Release checks: {release}\n"))?;
+    if release != "success"
+        || optional("OUT_BUILD")? != "success"
+        || optional("OUT_HARDENING")? != "success"
+        || optional("OUT_STAGE")? != "success"
+        || optional("FINAL_SCORECARD_RESULT")? != "success"
+    {
+        return Err("Release checks failed or were skipped".into());
     }
     if !optional("RUNNERS")?.is_empty() {
         let portability = optional("PORTABILITY")?;

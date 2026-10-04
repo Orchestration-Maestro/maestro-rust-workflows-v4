@@ -423,6 +423,7 @@ in place.
 │   │   ├── pull_request_rules.rs                                # COV-002, PRL-001 and PRL-002 over a real change against a base commit
 │   │   ├── quality_gates.rs                                     # ci.yml: lint, documentation, coverage and analysis gates, each proven to fail
 │   │   ├── quality_reports.rs                                   # ci.yml: diagnostics survive failing tools without changing their verdict
+│   │   ├── release_job.rs                                       # Independent release job and fail-closed final scorecard join
 │   │   ├── release_payload.rs                                   # ci.yml: release build, payload, bills of materials, and the example gate
 │   │   ├── release_payload_refusals.rs                          # The release payload's refusals: lockfile drift, unhardened or irreproducible binaries, malformed staging
 │   │   ├── release_rebuild.rs                                   # Clean same-path release rebuilds preserve generated code, flags and cached objects

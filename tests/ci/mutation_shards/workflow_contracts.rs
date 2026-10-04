@@ -36,7 +36,7 @@ fn assert_required_gate_wiring(ci: &Value) {
             format!(
                 concat!(
                     "${{{{ steps.required.outcome == 'success' && ",
-                    "needs.checks.outputs.{} || '' }}}}"
+                    "needs.release.outputs.{} || '' }}}}"
                 ),
                 output
             )
@@ -356,8 +356,9 @@ fn internal_shard_selftest_is_gated_and_runs_in_both_consumers() {
         worker["env"]["INTERNAL_SHARD_SELFTEST"],
         "${{ inputs.internal-shard-selftest || false }}"
     );
+    let required = workflow_step(ci["jobs"]["gate"]["steps"].as_array().unwrap(), "required");
     assert_eq!(
-        ci["jobs"]["gate"]["steps"][2]["env"]["INTERNAL_SHARD_SELFTEST"],
+        required["env"]["INTERNAL_SHARD_SELFTEST"],
         "${{ inputs.internal-shard-selftest || false }}"
     );
 }

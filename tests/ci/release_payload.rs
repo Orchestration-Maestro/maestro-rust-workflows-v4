@@ -225,7 +225,7 @@ fn release_payload_carries_both_sbom_formats_and_auditable_binaries() {
         "no ci.yml step may build without the auditable wrapper"
     );
     // The wrapper is pinned and installed like every other tool.
-    let installed = workflow("ci")["jobs"]["checks"]["steps"]
+    let installed = workflow("ci")["jobs"]["release"]["steps"]
         .as_array()
         .unwrap()
         .iter()

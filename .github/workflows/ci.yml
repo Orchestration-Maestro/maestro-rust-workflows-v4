@@ -285,7 +285,6 @@ jobs:
     env:
       CARGO_MUTANTS_VERSION: '27.1.0'
     outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ steps.validate.outputs.artifact-name }}
       revision: ${{ github.sha }}
       directory: ${{ steps.validate.outputs.directory }}
@@ -390,16 +389,6 @@ jobs:
             gitleaks gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb gitleaks
             cargo-llvm-cov taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a cargo-llvm-cov
             cargo-audit rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39 cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
-            cargo-cyclonedx CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz fb8dbee9f182173e062a64a387b21a0badc6fab8b2abf9294973f012972bf6d8 cargo-cyclonedx-x86_64-unknown-linux-gnu/cargo-cyclonedx
-            # cyclonedx merges the per-member SBOMs into the single document that
-            # describes the payload, which is what an attestation can take as its subject.
-            cyclonedx CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
-            # cargo-auditable embeds the resolved dependency list inside each released
-            # binary, so an auditor can answer "what is in this file" from the file itself.
-            cargo-auditable rust-secure-code/cargo-auditable/releases/download/v0.7.6/cargo-auditable-x86_64-unknown-linux-gnu.tar.xz 4b5b009ad799409bdaf70210e2e4d0ff00e415a78621949a88fb81a63f60ff48 cargo-auditable-x86_64-unknown-linux-gnu/cargo-auditable
-            # cargo-sbom writes native SPDX: converting the CycloneDX document instead
-            # loses packages and drops the relationship graph.
-            cargo-sbom psastras/sbom-rs/releases/download/cargo-sbom-v0.10.0/cargo-sbom-x86_64-unknown-linux-gnu 860a50d3e009c72fefc12506869cc11ea34d240c65da65cda2c491ed2aaa34f3
             # cargo-deny holds the default dependency policy for every project, and
             # a committed deny.toml on top.
             cargo-deny EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny
@@ -549,12 +538,6 @@ jobs:
       - name: Recorded dependency audits
         id: vet
         run: rust-gate vet
-      - name: Release build, verified packages and SBOMs
-        id: build
-        run: rust-gate build
-      - name: Reproducible build and binary hardening
-        id: hardening
-        run: rust-gate hardening
       # Last of the checks: a title or a branch outside the conventions must
       # not hide what the checks above would say.
       - name: Pull request rules PRL
@@ -562,17 +545,6 @@ jobs:
         env:
           PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
         run: rust-gate pull-request
-      - name: Stage immutable release payload
-        id: stage
-        run: rust-gate stage
-      - name: Upload release payload
-        id: upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ steps.validate.outputs.artifact-name }}
-          path: ${{ runner.temp }}/rust-release/
-          if-no-files-found: error
-          retention-days: 7
       - name: Build quality scorecard
         id: scorecard
         if: ${{ always() && steps.validate.outcome == 'success' }}
@@ -587,7 +559,9 @@ jobs:
           MUTATION_HOST_COUNT: ${{ needs.mutation-plan.outputs.mutation-host-count }}
           OUT_MUTANTS: ${{ steps.mutants.outcome }}
           OUT_UNUSED: ${{ steps.unused.outcome }}
-          OUT_STAGE: ${{ steps.stage.outcome }}
+          OUT_BUILD: skipped
+          OUT_HARDENING: skipped
+          OUT_STAGE: skipped
           FEATURES_APPLIED: ${{ steps.features.outputs.applied }}
           MUTANTS_APPLIED: ${{ steps.mutants.outputs.applied }}
           OUT_API: ${{ steps.api.outcome }}
@@ -641,6 +615,82 @@ jobs:
           path: ${{ steps.native-cache-inventory.outputs.paths }}
           key: ${{ steps.native-cache-prepare.outputs.key }}
           enableCrossOsArchive: false
+
+  release:
+    name: Release and hardening checks
+    needs:
+      - mutation-plan
+    runs-on: ubuntu-24.04
+    # Same hang ceiling as checks, which these steps ran under before; a hang still fails the job.
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    env:
+      PROJECT: ${{ github.workspace }}/${{ needs.mutation-plan.outputs.directory }}
+      REPORTS: ${{ github.workspace }}/rust-reports
+      CARGO_TARGET_DIR: ${{ github.workspace }}/rust-target
+      CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+      RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-name: ${{ needs.mutation-plan.outputs.artifact-name }}
+      revision: ${{ github.sha }}
+      out-build: ${{ steps.build.outcome }}
+      out-hardening: ${{ steps.hardening.outcome }}
+      out-stage: ${{ steps.stage.outcome }}
+    steps:
+      - name: Checkout the gate at this workflow's commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+      - name: Build the gate
+        uses: ./.github/actions/gate
+      # Replaces the gate's checkout: another repository's is deleted first.
+      - name: Checkout consumer revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Configure private Cargo state for direct crates.io access
+        run: rust-gate registry
+      - name: Install verified tools
+        run: rust-gate install-tools
+        env:
+          TOOLS: |
+            jaq 01mf02/jaq/releases/download/v3.1.1/jaq-x86_64-unknown-linux-gnu 5922c7b67d9bd6841d6676d1f954410c6bf04b47203dcb661c4f052dfef7f454
+            cargo-cyclonedx CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz fb8dbee9f182173e062a64a387b21a0badc6fab8b2abf9294973f012972bf6d8 cargo-cyclonedx-x86_64-unknown-linux-gnu/cargo-cyclonedx
+            cyclonedx CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
+            cargo-auditable rust-secure-code/cargo-auditable/releases/download/v0.7.6/cargo-auditable-x86_64-unknown-linux-gnu.tar.xz 4b5b009ad799409bdaf70210e2e4d0ff00e415a78621949a88fb81a63f60ff48 cargo-auditable-x86_64-unknown-linux-gnu/cargo-auditable
+            cargo-sbom psastras/sbom-rs/releases/download/cargo-sbom-v0.10.0/cargo-sbom-x86_64-unknown-linux-gnu 860a50d3e009c72fefc12506869cc11ea34d240c65da65cda2c491ed2aaa34f3
+      - name: Install the toolchain
+        run: rust-gate tools
+      - name: Release build, verified packages and SBOMs
+        id: build
+        run: rust-gate build
+      - name: Reproducible build and binary hardening
+        id: hardening
+        run: rust-gate hardening
+      - name: Stage immutable release payload
+        id: stage
+        run: rust-gate stage
+      - name: Upload release payload
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ needs.mutation-plan.outputs.artifact-name }}
+          path: ${{ runner.temp }}/rust-release/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload release diagnostic reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ needs.mutation-plan.outputs.artifact-name }}-release-reports
+          path: ${{ github.workspace }}/rust-reports/
+          if-no-files-found: error
+          retention-days: 7
 
   mutations:
     name: Mutation shard ${{ matrix.shard }} of ${{ needs.mutation-plan.outputs.mutation-shards }}
@@ -1303,7 +1353,7 @@ jobs:
           MUTATION_PLAN_DIR: ${{ runner.temp }}/checks-reports
           MUTATION_ARTIFACTS: ${{ runner.temp }}/mutation-shards
         run: rust-gate mutants-aggregate
-      - name: Finalize mutation scorecard
+      - name: Finalize quality scorecard
         id: scorecard-finalize
         if: ${{ always() }}
         env:
@@ -1467,6 +1517,7 @@ jobs:
     needs:
       - mutation-plan
       - checks
+      - release
       - portability
       - mutations
       - mutation-summary
@@ -1479,9 +1530,12 @@ jobs:
     timeout-minutes: 5
     permissions: {}
     outputs:
-      artifact-id: ${{ steps.required.outcome == 'success' && needs.checks.outputs.artifact-id || '' }}
-      artifact-name: ${{ steps.required.outcome == 'success' && needs.checks.outputs.artifact-name || '' }}
-      revision: ${{ steps.required.outcome == 'success' && needs.checks.outputs.revision || '' }}
+      artifact-id: ${{ steps.required.outcome == 'success' && needs.release.outputs.artifact-id || '' }}
+      artifact-name: ${{ steps.required.outcome == 'success' && needs.release.outputs.artifact-name || '' }}
+      revision: ${{ steps.required.outcome == 'success' && needs.release.outputs.revision || '' }}
+    env:
+      PROJECT: ${{ github.workspace }}
+      REPORTS: ${{ github.workspace }}/final-reports
     steps:
       - name: Checkout the gate at this workflow's commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -1491,9 +1545,48 @@ jobs:
           persist-credentials: false
       - name: Build the gate
         uses: ./.github/actions/gate
+      - name: Install the pinned JSON reader
+        run: rust-gate install-tools
+        env:
+          TOOLS: jaq 01mf02/jaq/releases/download/v3.1.1/jaq-x86_64-unknown-linux-gnu 5922c7b67d9bd6841d6676d1f954410c6bf04b47203dcb661c4f052dfef7f454
+      - name: Download canonical reports for the final scorecard
+        id: final-reports-download
+        if: ${{ always() && needs.mutation-plan.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: ${{ needs.mutation-plan.outputs.artifact-name }}-reports
+          path: ${{ github.workspace }}/final-reports
+      - name: Finalize quality scorecard
+        id: release-scorecard-finalize
+        if: ${{ always() && steps.final-reports-download.outcome == 'success' }}
+        run: rust-gate scorecard-finalize
+        env:
+          RELEASE_FINALIZE: 'true'
+          RELEASE_RESULT: ${{ needs.release.result }}
+          OUT_BUILD: ${{ needs.release.outputs.out-build }}
+          OUT_HARDENING: ${{ needs.release.outputs.out-hardening }}
+          OUT_STAGE: ${{ needs.release.outputs.out-stage }}
+      - name: Upload final scorecard
+        id: final-scorecard-upload
+        if: ${{ always() && steps.release-scorecard-finalize.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ${{ needs.mutation-plan.outputs.artifact-name }}-final-scorecard
+          path: |
+            ${{ github.workspace }}/final-reports/scorecard.json
+            ${{ github.workspace }}/final-reports/scorecard.md
+            ${{ github.workspace }}/final-reports/scorecard.svg
+          if-no-files-found: error
+          retention-days: 7
       - name: Require every check
         id: required
+        if: ${{ always() }}
         env:
+          RELEASE_RESULT: ${{ needs.release.result }}
+          OUT_BUILD: ${{ needs.release.outputs.out-build }}
+          OUT_HARDENING: ${{ needs.release.outputs.out-hardening }}
+          OUT_STAGE: ${{ needs.release.outputs.out-stage }}
+          FINAL_SCORECARD_RESULT: ${{ steps.final-scorecard-upload.outcome }}
           RESULT: ${{ needs.checks.result }}
           PORTABILITY: ${{ needs.portability.result }}
           RUNNERS: ${{ needs.checks.outputs.platforms }}
