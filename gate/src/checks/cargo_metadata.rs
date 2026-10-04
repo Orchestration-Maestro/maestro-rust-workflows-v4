@@ -1,6 +1,20 @@
 //! What several steps read out of Cargo's own records: jaq programs over
 //! `cargo metadata` and the build's JSON messages, and the rows they print.
 
+use crate::runner::{Cmd, Failure, Job};
+use std::path::PathBuf;
+
+/// Reuse this job's Cargo records, producing them when no earlier step did.
+pub(crate) fn ensure_metadata(job: &Job) -> Result<PathBuf, Failure> {
+    let metadata = job.temp.join("metadata.json");
+    if !metadata.exists() {
+        Cmd::new("cargo metadata --format-version 1 --locked")
+            .cwd(&job.project)
+            .stdout_to(&metadata)?;
+    }
+    Ok(metadata)
+}
+
 /// Binary name and executable path of every compiler artifact.
 pub(crate) const EXECUTABLES: &str =
     ".[] | select(.reason == \"compiler-artifact\" and .executable != null) |

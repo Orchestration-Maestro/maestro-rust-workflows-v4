@@ -67,9 +67,10 @@ imports flowing one way only:
   simple-name rule, hex strings), `rust_versions.rs` (version strings, the
   channel line of a toolchain file), `release_boundary.rs` (what both
   publishers ask of a release), `private_directories.rs` (private temporary
-  directories), `cargo_metadata.rs` (the jaq programs several steps read over
-  Cargo's records) and `inputs.rs` (the `ci.yml` inputs with a shape of their
-  own: the three policies, the coverage threshold and the artifact key, each
+  directories), `cargo_metadata.rs` (job-local metadata generation and the jaq
+  programs several steps read over Cargo's records) and `inputs.rs` (the
+  `ci.yml` inputs with a shape of their own: the three policies, the coverage
+  threshold and the artifact key, each
   read and refused in one place and typed for the steps). Built on the
   runner, never on a step. The door offers the modules, not their names, so
   an import says which kind of rule it reaches for:

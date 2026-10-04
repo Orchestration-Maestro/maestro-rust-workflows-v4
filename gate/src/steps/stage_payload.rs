@@ -3,7 +3,7 @@
 //! the same dependency set in SPDX, the verified packages, one tarball, its
 //! provenance and the checksums of both.
 
-use crate::checks::cargo_metadata::{EXECUTABLES, tsv_fields};
+use crate::checks::cargo_metadata::{EXECUTABLES, ensure_metadata, tsv_fields};
 use crate::checks::checkout_paths::{canonical, strictly_inside};
 use crate::checks::digests::sha256_hex;
 use crate::checks::simple_names::simple;
@@ -18,7 +18,7 @@ pub(crate) const STEPS: &[Step] = &[Step {
     id: "stage",
     summary: "Stage immutable release payload",
     inputs: &["CARGO_TARGET_DIR", "GITHUB_SHA", "GITHUB_WORKSPACE"],
-    tools: &["cargo sbom", "cyclonedx", "jaq", "tar"],
+    tools: &["cargo metadata", "cargo sbom", "cyclonedx", "jaq", "tar"],
     reports: &["*.spdx.json", "payload.cdx.json"],
     run,
 }];
@@ -108,7 +108,7 @@ impl Payload<'_> {
         let mut members = Vec::new();
         let table = Cmd::new("jaq -er")
             .arg(MEMBERS)
-            .arg(self.job.temp.join("metadata.json"))
+            .arg(ensure_metadata(self.job)?)
             .capture()?;
         for (name, manifest) in named_rows(&table, "Invalid workspace package name")? {
             let manifest = canonical(Path::new(&manifest))?;

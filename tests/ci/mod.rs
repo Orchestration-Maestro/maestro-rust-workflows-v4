@@ -23,6 +23,7 @@ mod install_tools;
 mod internal_shard_selftest;
 mod local_ci_run;
 mod managed_files;
+mod metadata_readers;
 mod mutation_shards;
 mod native_cache;
 mod native_cache_checks;
