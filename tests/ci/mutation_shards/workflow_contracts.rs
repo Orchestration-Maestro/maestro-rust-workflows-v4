@@ -36,7 +36,7 @@ fn assert_required_gate_wiring(ci: &Value) {
             format!(
                 concat!(
                     "${{{{ steps.required.outcome == 'success' && ",
-                    "needs.checks.outputs.{} || '' }}}}"
+                    "needs.release.outputs.{} || '' }}}}"
                 ),
                 output
             )
@@ -356,8 +356,9 @@ fn internal_shard_selftest_is_gated_and_runs_in_both_consumers() {
         worker["env"]["INTERNAL_SHARD_SELFTEST"],
         "${{ inputs.internal-shard-selftest || false }}"
     );
+    let required = workflow_step(ci["jobs"]["gate"]["steps"].as_array().unwrap(), "required");
     assert_eq!(
-        ci["jobs"]["gate"]["steps"][2]["env"]["INTERNAL_SHARD_SELFTEST"],
+        required["env"]["INTERNAL_SHARD_SELFTEST"],
         "${{ inputs.internal-shard-selftest || false }}"
     );
 }
@@ -439,23 +440,30 @@ fn shard_jobs_build_the_gate_with_its_pinned_toolchain() {
     for (name, build_id) in [
         ("mutations", "mutation-gate-build"),
         ("mutation-summary", "mutation-summary-gate-build"),
+        ("release", "release-gate-build"),
     ] {
         assert!(
             ci["jobs"][name]["env"].get("RUSTUP_TOOLCHAIN").is_none(),
             "{name} must not select the consumer compiler before building the gate"
         );
+        assert!(ci["jobs"][name]["env"].get("CARGO_BUILD_TARGET").is_none());
         let steps = ci["jobs"][name]["steps"].as_array().unwrap();
         let build = steps
             .iter()
             .position(|step| step["id"] == build_id)
             .unwrap();
+        for step in &steps[..=build] {
+            for key in ["RUSTUP_TOOLCHAIN", "CARGO_BUILD_TARGET"] {
+                assert!(step["env"].get(key).is_none(), "{name}/{key}");
+            }
+        }
         if name == "mutations" {
             let validate = steps
                 .iter()
                 .position(|step| step["id"] == "mutation-validate")
                 .unwrap();
             assert!(build < validate);
-        } else {
+        } else if name == "mutation-summary" {
             let aggregate = steps
                 .iter()
                 .find(|step| step["id"] == "mutation-aggregate")

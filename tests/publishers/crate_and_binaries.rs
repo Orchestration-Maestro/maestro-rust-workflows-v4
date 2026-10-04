@@ -60,6 +60,7 @@ fn publication_defaults_and_required_dependencies() {
         json!([
             "mutation-plan",
             "checks",
+            "release",
             "portability",
             "mutations",
             "mutation-summary",

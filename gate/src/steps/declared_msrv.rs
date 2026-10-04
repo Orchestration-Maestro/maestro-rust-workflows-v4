@@ -5,6 +5,7 @@
 //! consumer on an older compiler with no warning; one that declares a version
 //! nobody compiles against makes the same promise and keeps it by accident.
 
+use crate::checks::cargo_metadata::ensure_metadata;
 use crate::checks::rust_versions::parse;
 use crate::runner::{Cmd, Job, Outcome, Step, input};
 use std::fs;
@@ -16,7 +17,7 @@ pub(crate) const STEPS: &[Step] = &[Step {
     id: "msrv",
     summary: "Declared minimum supported Rust version",
     inputs: &["RUSTUP_TOOLCHAIN"],
-    tools: &["cargo check", "jaq", "rustup"],
+    tools: &["cargo check", "cargo metadata", "jaq", "rustup"],
     reports: &["msrv.tsv"],
     run,
 }];
@@ -29,10 +30,9 @@ const DECLARATIONS: &str =
 /// Run the step.
 fn run() -> Outcome {
     let job = Job::current()?;
-    let temp = &job.temp;
     let table = Cmd::new("jaq -er")
         .arg(DECLARATIONS)
-        .arg(temp.join("metadata.json"))
+        .arg(ensure_metadata(&job)?)
         .capture()?;
     let toolchain = input("RUSTUP_TOOLCHAIN")?;
     let selected = parse(&toolchain, false);

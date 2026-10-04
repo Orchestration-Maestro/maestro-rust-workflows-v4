@@ -410,6 +410,7 @@ in place.
 │   │   ├── internal_shard_selftest.rs                           # Repository-only synthetic mutation-shard input validation
 │   │   ├── local_ci_run.rs                                      # rust-gate ci --local: every ci.yml step run or said not applied, a branch as its pull request
 │   │   ├── managed_files.rs                                     # init, sync, sync --check and managed-files: written, refused by name, written back
+│   │   ├── metadata_readers.rs                                   # Metadata readers run in fresh jobs and reuse existing records
 │   │   ├── mod.rs                                               # The repository modules, listed and nothing else
 │   │   ├── native_cache.rs                                      # Native cache policy, private restore transport and coverage-only injection
 │   │   ├── native_cache_checks.rs                               # API and feature children share only a policy-opted-in, reverified native root
@@ -423,6 +424,7 @@ in place.
 │   │   ├── pull_request_rules.rs                                # COV-002, PRL-001 and PRL-002 over a real change against a base commit
 │   │   ├── quality_gates.rs                                     # ci.yml: lint, documentation, coverage and analysis gates, each proven to fail
 │   │   ├── quality_reports.rs                                   # ci.yml: diagnostics survive failing tools without changing their verdict
+│   │   ├── release_job.rs                                       # Independent release job and fail-closed final scorecard join
 │   │   ├── release_payload.rs                                   # ci.yml: release build, payload, bills of materials, and the example gate
 │   │   ├── release_payload_refusals.rs                          # The release payload's refusals: lockfile drift, unhardened or irreproducible binaries, malformed staging
 │   │   ├── release_rebuild.rs                                   # Clean same-path release rebuilds preserve generated code, flags and cached objects

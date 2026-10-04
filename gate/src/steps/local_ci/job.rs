@@ -166,6 +166,10 @@ pub(super) const ALWAYS: &str = "scorecard";
 /// Every other job of `ci.yml`, by its id, and why none applies here.
 pub(super) const OTHER_JOBS: &[(&str, &str)] = &[
     (
+        "release",
+        "release checks run inline locally before staging the same payload",
+    ),
+    (
         "mutation-plan",
         "local CI always runs the full mutation suite inline; shard planning is remote-only",
     ),
@@ -218,6 +222,8 @@ pub(super) const OUTCOMES: &[(&str, &str)] = &[
     ("OUT_MUTANTS", "mutants"),
     ("OUT_UNUSED", "unused"),
     ("OUT_STAGE", "stage"),
+    ("OUT_BUILD", "build"),
+    ("OUT_HARDENING", "hardening"),
     ("OUT_API", "api"),
     ("OUT_ARCHITECTURE", "architecture"),
     ("OUT_HYGIENE", "hygiene"),

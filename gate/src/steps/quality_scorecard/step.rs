@@ -45,6 +45,8 @@ pub(crate) const STEPS: &[Step] = &[
             "OUT_QUALITY",
             "OUT_SECRETS",
             "OUT_STAGE",
+            "OUT_BUILD",
+            "OUT_HARDENING",
             "OUT_UNUSED",
             "OUT_VET",
             "PERFORMANCE_APPLIED",
@@ -61,9 +63,14 @@ pub(crate) const STEPS: &[Step] = &[
     Step {
         workflow: "ci",
         id: "scorecard-finalize",
-        summary: "Finalize mutation scorecard",
+        summary: "Finalize quality scorecard",
         inputs: &[
             "MUTATION_STATE",
+            "RELEASE_FINALIZE",
+            "RELEASE_RESULT",
+            "OUT_BUILD",
+            "OUT_HARDENING",
+            "OUT_STAGE",
             "MUTATION_HOST_COUNT",
             "CHANGED_COVERAGE_STATE",
         ],
@@ -108,6 +115,7 @@ fn run() -> Outcome {
         false,
     )?;
     let mut markdown = scorecard.markdown();
+    markdown.push_str("\nRelease rows are preliminary; final result in Required Rust CI.\n");
     if let Some(data) = &complexity {
         markdown.push_str(&complexity_line(data));
     }
@@ -124,47 +132,18 @@ fn run() -> Outcome {
 /// Rebuild the reports after shard aggregation changes mutation from not-run.
 fn finalize() -> Outcome {
     let job = Job::current()?;
-    let mutation_state = State::parse(&input("MUTATION_STATE")?)
-        .filter(|state| matches!(state, State::Passed | State::Failed | State::NotRun))
-        .ok_or("MUTATION_STATE must be passed, failed or not-run")?;
-    let path = job.earlier("scorecard.json");
-    let rows = Cmd::new("jaq -r")
-        .arg(".controls[] | [.control,.kind,.state] | @tsv")
-        .arg(&path)
-        .capture()?;
-    let mut controls = Vec::new();
-    let mut mutation_seen = false;
-    for row in rows.lines() {
-        let mut columns = row.split('\t');
-        let name = columns.next().unwrap_or_default();
-        let kind = columns.next().unwrap_or_default();
-        let state_text = columns.next().unwrap_or_default();
-        if name.is_empty() || kind.is_empty() || columns.next().is_some() {
-            return Err("scorecard controls have an invalid shape".into());
-        }
-        let mut state =
-            State::parse(state_text).ok_or("scorecard contains an unknown control state")?;
-        if name == "mutation testing" {
-            if mutation_seen || kind != "optional" {
-                return Err("scorecard mutation control is duplicated or invalid".into());
-            }
-            mutation_seen = true;
-            state = mutation_state;
-        }
-        if name == "changed-line coverage"
-            && optional("MUTATION_HOST_COUNT")?
-                .parse::<usize>()
-                .is_ok_and(|count| count > 0)
-        {
-            state = State::parse(&optional("CHANGED_COVERAGE_STATE")?)
+    let release_finalize = optional("RELEASE_FINALIZE")? == "true";
+    let mutation_state = if release_finalize {
+        None
+    } else {
+        Some(
+            State::parse(&input("MUTATION_STATE")?)
                 .filter(|state| matches!(state, State::Passed | State::Failed | State::NotRun))
-                .unwrap_or(State::NotRun);
-        }
-        controls.push((name.to_owned(), kind.to_owned(), state));
-    }
-    if !mutation_seen {
-        return Err("scorecard has no mutation testing control".into());
-    }
+                .ok_or("MUTATION_STATE must be passed, failed or not-run")?,
+        )
+    };
+    let path = job.earlier("scorecard.json");
+    let controls = joined_controls(&path, release_finalize, mutation_state)?;
     let revision = field(&path, ".revision")?;
     let toolchain = field(&path, ".toolchain")?;
     if revision.is_empty() || toolchain.is_empty() {
@@ -185,6 +164,9 @@ fn finalize() -> Outcome {
     };
     write(&path, scorecard.json().as_bytes(), false)?;
     let mut markdown = scorecard.markdown();
+    if !release_finalize {
+        markdown.push_str("\nRelease rows are preliminary; final result in Required Rust CI.\n");
+    }
     if let Some(data) = &complexity {
         markdown.push_str(&complexity_line(data));
     }
@@ -196,6 +178,88 @@ fn finalize() -> Outcome {
         scorecard.badge().as_bytes(),
         false,
     )
+}
+
+/// Validate the incoming controls and join only the evidence this mode owns.
+fn joined_controls(
+    path: &Path,
+    release_finalize: bool,
+    mutation_state: Option<State>,
+) -> Result<Vec<(String, String, State)>, Failure> {
+    let rows = Cmd::new("jaq -r")
+        .arg(".controls[] | [.control,.kind,.state] | @tsv")
+        .arg(path)
+        .capture()?;
+    let mut controls = Vec::new();
+    let mut mutation_seen = false;
+    let mut release_seen = Vec::new();
+    for row in rows.lines() {
+        let mut columns = row.split('\t');
+        let name = columns.next().unwrap_or_default();
+        let kind = columns.next().unwrap_or_default();
+        let state_text = columns.next().unwrap_or_default();
+        if name.is_empty() || kind.is_empty() || columns.next().is_some() {
+            return Err("scorecard controls have an invalid shape".into());
+        }
+        let mut state =
+            State::parse(state_text).ok_or("scorecard contains an unknown control state")?;
+        if name == "mutation testing" {
+            if mutation_seen || kind != "optional" {
+                return Err("scorecard mutation control is duplicated or invalid".into());
+            }
+            mutation_seen = true;
+            if let Some(updated) = mutation_state {
+                state = updated;
+            }
+        }
+        let release_state = if release_finalize {
+            release_state(name)?
+        } else {
+            None
+        };
+        if let Some(updated) = release_state {
+            if kind != "enforced" || release_seen.contains(&name) {
+                return Err(
+                    "scorecard release controls must appear exactly once and be enforced".into(),
+                );
+            }
+            release_seen.push(name);
+            state = updated;
+        }
+        if release_finalize && state == State::NotRun {
+            state = State::Failed;
+        }
+        if !release_finalize
+            && name == "changed-line coverage"
+            && optional("MUTATION_HOST_COUNT")?
+                .parse::<usize>()
+                .is_ok_and(|count| count > 0)
+        {
+            state = State::parse(&optional("CHANGED_COVERAGE_STATE")?)
+                .filter(|state| matches!(state, State::Passed | State::Failed | State::NotRun))
+                .unwrap_or(State::NotRun);
+        }
+        controls.push((name.to_owned(), kind.to_owned(), state));
+    }
+    if !mutation_seen {
+        return Err("scorecard has no mutation testing control".into());
+    }
+    if release_finalize && release_seen.len() != 3 {
+        return Err("scorecard release controls must appear exactly once and be enforced".into());
+    }
+    Ok(controls)
+}
+
+/// Replace release rows only at the final join; incomplete evidence is failed, never green.
+fn release_state(name: &str) -> Result<Option<State>, Failure> {
+    let outcome = match name {
+        "release tests, auditable build, verified packages and SBOMs" => "OUT_BUILD",
+        "reproducibility and binary hardening" => "OUT_HARDENING",
+        "packaging and SBOM" => "OUT_STAGE",
+        _ => return Ok(None),
+    };
+    let passed = optional("RELEASE_RESULT")? == "success" && optional(outcome)? == "success";
+    Ok(Some(if passed { State::Passed } else { State::Failed }))
 }
 
 /// Read one already checked field from the previous scorecard.
@@ -365,6 +429,16 @@ fn organization_controls() -> Result<Vec<Control>, Failure> {
             "performance budget",
             "optional",
             state("OUT_PERFORMANCE", true, &optional("PERFORMANCE_APPLIED")?)?,
+        ),
+        (
+            "release tests, auditable build, verified packages and SBOMs",
+            "enforced",
+            State::from_outcome(&optional("OUT_BUILD")?, true, "true"),
+        ),
+        (
+            "reproducibility and binary hardening",
+            "enforced",
+            State::from_outcome(&optional("OUT_HARDENING")?, true, "true"),
         ),
     ])
 }

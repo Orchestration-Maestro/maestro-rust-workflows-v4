@@ -114,7 +114,7 @@
   <rect x="472" y="120" width="24" height="12" rx="2" fill="transparent" stroke="rgba(38,27,8,0.40)" stroke-width="0.8"/>
   <text x="484" y="129" fill="#261b08" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle" letter-spacing="0.08em">CI</text>
   <text x="532" y="152" fill="#261b08" font-size="12" font-weight="600" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle">ci.yml</text>
-  <text x="532" y="172" fill="#604427" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle">22 controls</text>
+  <text x="532" y="172" fill="#604427" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle">24 controls</text>
   <text x="532" y="188" fill="#604427" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" text-anchor="middle">required check</text>
 
   <!-- verified payload -->

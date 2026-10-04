@@ -150,6 +150,7 @@ fn planning_hands_validated_outputs_to_portability_without_changing_required_sta
         json!([
             "mutation-plan",
             "checks",
+            "release",
             "portability",
             "mutations",
             "mutation-summary",

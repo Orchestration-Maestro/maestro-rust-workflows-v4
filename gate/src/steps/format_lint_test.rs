@@ -12,6 +12,7 @@
 //! on `cargo test --doc`: nextest does not run them, and dropping them silently
 //! would trade a runner for a gap.
 
+use crate::checks::cargo_metadata::ensure_metadata;
 use crate::checks::checkout_paths::canonical;
 use crate::checks::inputs::{UnsafePolicy, clippy_level, unsafe_policy};
 use crate::checks::organization_config::{RUSTFMT_OPTIONS, clippy_directory};
@@ -84,10 +85,7 @@ fn run() -> Outcome {
     let job = Job::current()?;
     let project = &job.project;
     let temp = &job.temp;
-    let metadata = temp.join("metadata.json");
-    Cmd::new("cargo metadata --format-version 1 --locked")
-        .cwd(project)
-        .stdout_to(&metadata)?;
+    let metadata = ensure_metadata(&job)?;
     let root = canonical(&path("GITHUB_WORKSPACE")?)?;
     let members = Cmd::new("jaq -er")
         .arg(MEMBER_PATHS)

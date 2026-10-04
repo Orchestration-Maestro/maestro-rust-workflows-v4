@@ -131,6 +131,8 @@ fn assert_no_host_summary(stdout: &str) {
         .collect::<Vec<_>>()
         .join("\n");
     let expected = concat!(
+        "not applied             job release: release checks run inline locally before staging ",
+        "the same payload\n",
         "not applied             job mutation-plan: local CI always runs the full ",
         "mutation suite inline; shard planning is remote-only\n",
         "not applied             job portability: it builds and tests on GitHub's ",
@@ -157,10 +159,22 @@ fn assert_no_host_summary(stdout: &str) {
 
 /// The steps of the `checks` job of `ci.yml`, in order.
 fn checks_job() -> Vec<Value> {
-    workflow("ci")["jobs"]["checks"]["steps"]
-        .as_array()
-        .unwrap()
-        .clone()
+    let ci = workflow("ci");
+    let mut steps = ci["jobs"]["checks"]["steps"].as_array().unwrap().clone();
+    for (anchor, ids) in [
+        ("pull-request", vec!["build", "hardening"]),
+        ("scorecard", vec!["stage", "upload"]),
+    ] {
+        let index = steps.iter().position(|step| step["id"] == anchor).unwrap();
+        let moved = ci["jobs"]["release"]["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|step| ids.iter().any(|id| step["id"] == *id))
+            .cloned();
+        steps.splice(index..index, moved);
+    }
+    steps
 }
 
 /// The gate steps a local run must start, in order, read from `stdout`

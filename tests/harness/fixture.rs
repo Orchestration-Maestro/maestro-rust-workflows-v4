@@ -13,7 +13,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Every step outcome the scorecard reads: what a run hands it.
-pub(crate) const SCORECARD_OUTCOMES: [&str; 20] = [
+pub(crate) const SCORECARD_OUTCOMES: [&str; 22] = [
     "OUT_QUALITY",
     "OUT_COVERAGE",
     "OUT_AUDIT",
@@ -24,6 +24,8 @@ pub(crate) const SCORECARD_OUTCOMES: [&str; 20] = [
     "OUT_MUTANTS",
     "OUT_UNUSED",
     "OUT_STAGE",
+    "OUT_BUILD",
+    "OUT_HARDENING",
     "OUT_API",
     "OUT_ARCHITECTURE",
     "OUT_HYGIENE",
@@ -126,6 +128,7 @@ impl Fixture {
         ] {
             fixture.set(key, value);
         }
+        fixture.required_release_defaults();
         fixture.set("GITHUB_SHA", &"a".repeat(40));
         for (key, file) in [
             ("GITHUB_WORKSPACE", ""),
@@ -151,6 +154,19 @@ impl Fixture {
             ),
         );
         fixture
+    }
+
+    /// Independent release evidence supplied by a successful hosted job.
+    fn required_release_defaults(&mut self) {
+        for key in [
+            "RELEASE_RESULT",
+            "OUT_BUILD",
+            "OUT_HARDENING",
+            "OUT_STAGE",
+            "FINAL_SCORECARD_RESULT",
+        ] {
+            self.set(key, "success");
+        }
     }
 
     /// The real adapter: the same environment table as `new()`, but the project

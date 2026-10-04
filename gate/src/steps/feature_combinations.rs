@@ -7,6 +7,7 @@
 //! A workspace declaring no feature has nothing to check, and the
 //! step says so rather than spending a compile to prove it.
 
+use crate::checks::cargo_metadata::ensure_metadata;
 use crate::checks::native_cache::{
     NativeCache, native_cache, native_cache_command, native_command,
 };
@@ -145,7 +146,7 @@ fn run() -> Outcome {
     let job = Job::current()?;
     let declared = Cmd::new("jaq -r")
         .arg(DECLARED)
-        .arg(job.temp.join("metadata.json"))
+        .arg(ensure_metadata(&job)?)
         .capture()?;
     let mut names: Vec<&str> = declared
         .lines()
