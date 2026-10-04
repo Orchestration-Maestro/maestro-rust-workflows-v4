@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.9.2](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.9.1...v4.9.2) (2026-10-04)
+
+
+### Bug Fixes
+
+* **ci:** give the release job the checks job's test environment ([#130](https://github.com/Orchestration-Maestro/maestro-rust-workflows/issues/130)) ([5f35f13](https://github.com/Orchestration-Maestro/maestro-rust-workflows/commit/5f35f13a54bc8897d456110ff9dfe7db6582e7bf))
+
 ## [4.9.1](https://github.com/Orchestration-Maestro/maestro-rust-workflows/compare/v4.9.0...v4.9.1) (2026-10-04)
 
 
