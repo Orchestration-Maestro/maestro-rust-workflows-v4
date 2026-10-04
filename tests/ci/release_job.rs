@@ -220,14 +220,21 @@ fn final_join_keeps_canonical_upload_inputs_and_release_binding() {
         release["env"]["PROJECT"],
         "${{ github.workspace }}/${{ needs.mutation-plan.outputs.directory }}"
     );
-    assert_eq!(
-        release["env"]["CARGO_TARGET_DIR"],
-        "${{ github.workspace }}/rust-target"
-    );
-    assert_eq!(
-        release["env"]["REPORTS"],
-        "${{ github.workspace }}/rust-reports"
-    );
+    for key in ["CARGO_TARGET_DIR", "REPORTS"] {
+        assert!(release["env"].get(key).is_none(), "step-local {key}");
+        for id in ["build", "hardening", "stage"] {
+            let step = steps.iter().find(|step| step["id"] == id).unwrap();
+            let directory = if key == "REPORTS" {
+                "rust-reports"
+            } else {
+                "rust-target"
+            };
+            assert_eq!(
+                step["env"][key],
+                format!("${{{{ runner.temp }}}}/{directory}")
+            );
+        }
+    }
     let gate = ci["jobs"]["gate"]["steps"].as_array().unwrap();
     let finalize = gate
         .iter()

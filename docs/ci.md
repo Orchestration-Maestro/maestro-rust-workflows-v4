@@ -19,7 +19,12 @@ The `release` job starts alongside `checks` from validated `mutation-plan`
 outputs. The gate bootstraps with its pinned compiler before step-local consumer
 compiler and target settings apply. It runs release tests before the auditable build, then the clean
 hardening rebuild at the same target path, and stages the immutable payload.
-Its workspace, private Cargo state and target directory belong to its own runner.
+Its workspace and private Cargo state belong to its own runner. Release build
+output and diagnostic reports stay under `runner.temp`, outside the consumer
+checkout, just as `validate` arranges for `checks`. The release job installs the
+same unconditional Linux test toolbelt as `checks` through a shared YAML anchor,
+then its additional settings reader, SBOM and auditable-build tools. The consumer
+compiler and target apply only to the release steps, not the gate bootstrap.
 The existing build and hardening gates still verify packages, SBOMs and binaries.
 Required Rust CI waits for this job and refuses failed, cancelled, skipped or
 missing release evidence before exposing its same-SHA artifact outputs.

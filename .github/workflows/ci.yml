@@ -382,7 +382,8 @@ jobs:
           # Verified prebuilt releases instead of `cargo install`: building these
           # from source cost every caller minutes of compile time on every job,
           # multiplied by the compiler matrix. Each asset is pinned by checksum.
-          TOOLS: |
+          # Release tests use this same toolbelt, not a second list of pins.
+          TOOLS: &linux-test-toolbelt |
             # gungraun's runner counts the declared benchmarks' instructions
             # (PRF-001); it must match the gungraun the benchmarks link.
             gungraun-runner gungraun/gungraun/releases/download/v0.19.4/gungraun-runner-v0.19.4-x86_64-unknown-linux-gnu.tar.gz f88194dac725ef0599b2812396518e9bd74aadaf75f5baf78df91ddb9eec67d3 gungraun-runner-v0.19.4-x86_64-unknown-linux-gnu/gungraun-runner
@@ -627,8 +628,6 @@ jobs:
       contents: read
     env:
       PROJECT: ${{ github.workspace }}/${{ needs.mutation-plan.outputs.directory }}
-      REPORTS: ${{ github.workspace }}/rust-reports
-      CARGO_TARGET_DIR: ${{ github.workspace }}/rust-target
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
       artifact-name: ${{ needs.mutation-plan.outputs.artifact-name }}
@@ -654,7 +653,11 @@ jobs:
           persist-credentials: false
       - name: Configure private Cargo state for direct crates.io access
         run: rust-gate registry
-      - name: Install verified tools
+      - name: Install the shared consumer test toolbelt
+        run: rust-gate install-tools
+        env:
+          TOOLS: *linux-test-toolbelt
+      - name: Install verified release tools
         run: rust-gate install-tools
         env:
           TOOLS: |
@@ -665,27 +668,24 @@ jobs:
             cargo-sbom psastras/sbom-rs/releases/download/cargo-sbom-v0.10.0/cargo-sbom-x86_64-unknown-linux-gnu 860a50d3e009c72fefc12506869cc11ea34d240c65da65cda2c491ed2aaa34f3
       - name: Install the toolchain
         run: rust-gate tools
-        env:
+        # runner.temp is available at step scope; keep the gate bootstrap on its own compiler.
+        env: &release-environment
+          REPORTS: ${{ runner.temp }}/rust-reports
+          CARGO_TARGET_DIR: ${{ runner.temp }}/rust-target
           RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
           CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
       - name: Release build, verified packages and SBOMs
         id: build
         run: rust-gate build
-        env:
-          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
-          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+        env: *release-environment
       - name: Reproducible build and binary hardening
         id: hardening
         run: rust-gate hardening
-        env:
-          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
-          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+        env: *release-environment
       - name: Stage immutable release payload
         id: stage
         run: rust-gate stage
-        env:
-          RUSTUP_TOOLCHAIN: ${{ needs.mutation-plan.outputs.toolchain }}
-          CARGO_BUILD_TARGET: x86_64-unknown-linux-gnu
+        env: *release-environment
       - name: Upload release payload
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -699,7 +699,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ${{ needs.mutation-plan.outputs.artifact-name }}-release-reports
-          path: ${{ github.workspace }}/rust-reports/
+          path: ${{ runner.temp }}/rust-reports/
           if-no-files-found: error
           retention-days: 7
 
